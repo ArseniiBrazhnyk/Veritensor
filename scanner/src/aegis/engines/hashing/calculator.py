@@ -1,15 +1,20 @@
 # Copyright 2025 Aegis Security
 # Adapted from huggingface_hub (Apache 2.0 License)
 #
-# This module implements hashing logic identical to Hugging Face Hub
-# to ensure we can verify file integrity against their registry.
+# This module implements hashing logic identical to Hugging Face Hub.
+# It handles standard files and Git LFS pointers transparently.
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import BinaryIO, Union, Optional
 
+# Import LFS parser from the sibling module
+from .lfs import parse_lfs_pointer
+
+logger = logging.getLogger(__name__)
+
 # Default chunk size used by Hugging Face (1MB).
-# Using this specific size ensures consistent memory usage and performance.
 DEFAULT_CHUNK_SIZE = 1024 * 1024
 
 
@@ -20,9 +25,8 @@ def calculate_sha256(
     """
     Computes the SHA256 hash of a file.
     
-    This function handles both file paths and file-like objects.
-    It reads the file in chunks to handle large ML models without 
-    loading them entirely into RAM.
+    If the file is a Git LFS pointer, returns the hash referenced inside the pointer.
+    Otherwise, computes the hash of the file content.
 
     Args:
         file_input: Path to the file or a file-like object (opened in 'rb' mode).
@@ -44,25 +48,40 @@ def calculate_sha256(
 def _compute_sha256_from_stream(fileobj: BinaryIO, chunk_size: int) -> str:
     """
     Internal helper to compute SHA256 from a stream.
-    Matches logic from `huggingface_hub.utils.sha.sha_fileobj`.
+    Includes LFS pointer detection.
     """
-    sha = hashlib.sha256()
-    
-    # Save current position if possible to reset later (good practice),
-    # though for streams like HTTP response it might not be seekable.
+    # 1. Try to detect LFS pointer first
     start_pos = 0
     try:
         start_pos = fileobj.tell()
+        # Read enough bytes to check for LFS header (usually < 200 bytes)
+        header_sample = fileobj.read(1024)
+        
+        # Check if it's an LFS pointer
+        lfs_info = parse_lfs_pointer(header_sample)
+        if lfs_info:
+            logger.debug("Detected LFS pointer, using OID from metadata.")
+            return lfs_info["sha256"]
+            
+        # If not LFS, reset cursor to start to read the whole file
+        fileobj.seek(start_pos)
+        
     except (OSError, AttributeError):
-        pass # Stream might not be seekable
+        # If stream is not seekable (e.g. pipe), we can't check LFS reliably 
+        # without consuming data. We proceed to standard hashing.
+        logger.debug("Stream not seekable, skipping LFS check.")
+        pass
 
+    # 2. Standard SHA256 calculation
+    sha = hashlib.sha256()
+    
     while True:
         chunk = fileobj.read(chunk_size)
         if not chunk:
             break
         sha.update(chunk)
     
-    # Try to reset cursor to start, so the file can be read again if needed
+    # Try to reset cursor to start, so the file can be read again if needed by other engines
     try:
         fileobj.seek(start_pos)
     except (OSError, AttributeError):
@@ -77,7 +96,7 @@ def calculate_git_hash(data: bytes) -> str:
     
     This is equivalent to running `git hash-object`.
     Used primarily for verifying small files (like config.json) or 
-    LFS pointer files, not large model weights.
+    LFS pointer files themselves.
 
     Logic: sha1("blob " + filesize + "\0" + data)
 
