@@ -1,4 +1,4 @@
-# Copyright 2025 Aegis Security
+# Copyright 2025 Veritensor Security
 #
 # This module interacts with the Hugging Face Hub API.
 # It verifies if a local file's hash matches the official record in the Hub.
