@@ -1,5 +1,5 @@
 from typer.testing import CliRunner
-from aegis.cli.main import app
+from veritensor.cli.main import app
 
 runner = CliRunner()
 
