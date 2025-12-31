@@ -1,4 +1,4 @@
-# Copyright 2025 Aegis Security
+# Copyright 2025 Veritensor Security
 #
 # The Main CLI Entry Point.
 # Orchestrates: Config -> Scan -> Verify -> Sign.
@@ -16,21 +16,21 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 # --- Internal Modules ---
-from aegis.core.config import ConfigLoader
-from aegis.core.types import ScanResult, Severity
-from aegis.core.cache import HashCache
-from aegis.engines.hashing.calculator import calculate_sha256
-from aegis.engines.static.pickle_engine import scan_pickle_stream
-from aegis.engines.static.keras_engine import scan_keras_file
-from aegis.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
-from aegis.integrations.huggingface import HuggingFaceClient
+from veritensor.core.config import ConfigLoader
+from veritensor.core.types import ScanResult, Severity
+from veritensor.core.cache import HashCache
+from veritensor.engines.hashing.calculator import calculate_sha256
+from veritensor.engines.static.pickle_engine import scan_pickle_stream
+from veritensor.engines.static.keras_engine import scan_keras_file
+from veritensor.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
+from veritensor.integrations.huggingface import HuggingFaceClient
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
-logger = logging.getLogger("aegis")
+logger = logging.getLogger("veritensor")
 
 # Setup Typer & Rich
-app = typer.Typer(help="Aegis: AI Model Security Scanner & Gatekeeper")
+app = typer.Typer(help="Veritensor: AI Model Security Scanner & Gatekeeper")
 console = Console()
 
 # Supported Extensions
@@ -58,7 +58,7 @@ def scan(
         console.print(f"[dim]Loaded config from {path}[/dim]")
 
     if not json_output:
-        console.print(Panel.fit(f"🛡️  [bold cyan]Aegis Security Scanner[/bold cyan] v4.1", border_style="cyan"))
+        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v4.1", border_style="cyan"))
 
     # 2. Collect Files
     files_to_scan = []
@@ -238,17 +238,17 @@ def _perform_signing(image: str, status: str, config):
     
     # Determine key path (Config -> Env -> Default)
     key_path = config.private_key_path
-    if not key_path and "AEGIS_PRIVATE_KEY_PATH" in os.environ:
-        key_path = os.environ["AEGIS_PRIVATE_KEY_PATH"]
+    if not key_path and "VERITENSOR_PRIVATE_KEY_PATH" in os.environ:
+        key_path = os.environ["VERITENSOR_PRIVATE_KEY_PATH"]
     
     if not key_path:
-         console.print("[red]Skipping signing: No private key found (set AEGIS_PRIVATE_KEY_PATH).[/red]")
+         console.print("[red]Skipping signing: No private key found (set VERITENSOR_PRIVATE_KEY_PATH).[/red]")
          return
 
     success = sign_container(
         image_ref=image, 
         key_path=key_path, 
-        annotations={"scanned_by": "aegis", "status": status}
+        annotations={"scanned_by": "veritensor", "status": status}
     )
 
     if success:
@@ -260,7 +260,7 @@ def _perform_signing(image: str, status: str, config):
 
 
 @app.command()
-def keygen(output_prefix: str = "aegis"):
+def keygen(output_prefix: str = "veritensor"):
     """
     Generates a generic Cosign key pair for signing.
     """
@@ -272,7 +272,7 @@ def keygen(output_prefix: str = "aegis"):
 
     if generate_key_pair(output_prefix):
         console.print(f"[green]✔ Keys generated: {output_prefix}.key / {output_prefix}.pub[/green]")
-        console.print(f"Set [cyan]AEGIS_PRIVATE_KEY_PATH={output_prefix}.key[/cyan] to use them.")
+        console.print(f"Set [cyan]VERITENSOR_PRIVATE_KEY_PATH={output_prefix}.key[/cyan] to use them.")
     else:
         console.print("[red]Key generation failed.[/red]")
 
@@ -280,7 +280,7 @@ def keygen(output_prefix: str = "aegis"):
 @app.command()
 def version():
     """Show version info."""
-    console.print("Aegis v4.1 (Enterprise Edition)")
+    console.print("Veritensor v4.1 (Enterprise Edition)")
 
 
 if __name__ == "__main__":
