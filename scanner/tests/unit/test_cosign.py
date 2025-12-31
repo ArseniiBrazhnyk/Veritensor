@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from aegis.integrations.cosign import sign_container
+from veritensor.integrations.cosign import sign_container
 
-@patch("aegis.integrations.cosign.subprocess.run")
-@patch("aegis.integrations.cosign.is_cosign_available", return_value=True)
+@patch("veritensor.integrations.cosign.subprocess.run")
+@patch("veritensor.integrations.cosign.is_cosign_available", return_value=True)
 @patch("pathlib.Path.exists", return_value=True) # Simulating the presence of a key
 def test_sign_container_success(mock_exists, mock_avail, mock_run):
     # Setting up the ioc so that it returns "Success"
