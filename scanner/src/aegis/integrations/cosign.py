@@ -1,4 +1,4 @@
-# Copyright 2025 Aegis Security
+# Copyright 2025 Veritensor Security
 #
 # This module integrates with Sigstore Cosign.
 # It wraps the 'cosign' CLI binary using subprocess to sign OCI artifacts.
@@ -37,7 +37,7 @@ def sign_container(
     Args:
         image_ref: The image tag (e.g., 'myrepo/model:v1').
         key_path: Path to the 'cosign.key' private key file.
-        annotations: Metadata to attach (e.g., {'scanned_by': 'aegis', 'status': 'clean'}).
+        annotations: Metadata to attach (e.g., {'scanned_by': 'veritensor', 'status': 'clean'}).
         tlog_upload: Whether to upload to the public Rekor transparency log. 
                      Defaults to False for enterprise privacy.
 
@@ -45,7 +45,7 @@ def sign_container(
         True if signing succeeded, False otherwise.
     """
     if not is_cosign_available():
-        logger.error("Cosign binary not found. Please install it or use the Aegis Docker image.")
+        logger.error("Cosign binary not found. Please install it or use the Veritensor Docker image.")
         return False
 
     if not Path(key_path).exists():
@@ -104,10 +104,10 @@ def sign_container(
         return False
 
 
-def generate_key_pair(output_prefix: str = "aegis") -> bool:
+def generate_key_pair(output_prefix: str = "veritensor") -> bool:
     """
-    Generates a new key pair (aegis.key and aegis.pub).
-    Useful for the 'aegis keygen' CLI command.
+    Generates a new key pair (veritensor.key and veritensor.pub).
+    Useful for the 'veritensor keygen' CLI command.
     """
     if not is_cosign_available():
         logger.error("Cosign binary not found.")
@@ -117,7 +117,7 @@ def generate_key_pair(output_prefix: str = "aegis") -> bool:
     
     # Cosign asks for a password interactively. 
     # For automation, we can set COSIGN_PASSWORD env var, 
-    # but 'aegis keygen' is usually run interactively by a human.
+    # but 'veritensor keygen' is usually run interactively by a human.
     
     try:
         # We don't capture output here to let the user interact with the password prompt
