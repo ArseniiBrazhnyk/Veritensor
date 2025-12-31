@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aegis-scanner"
+name = "veritensor-scanner"
 version = "4.1.0"
 description = "AI Model Security Scanner & Gatekeeper"
 requires-python = ">=3.10"
@@ -13,13 +13,10 @@ dependencies = [
     "requests>=2.31.0",
     "pyyaml>=6.0",
     "huggingface_hub>=0.19.0",
-    # Опциональные зависимости (можно убрать, если не нужны)
-    # "h5py",  # Для старых Keras файлов
-    # "safetensors" # Если будем использовать официальную либу вместо своего ридера
 ]
 
 [project.scripts]
-aegis = "aegis.cli.main:app"
+veritensor = "veritensor.cli.main:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
