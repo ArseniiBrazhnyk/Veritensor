@@ -1,5 +1,5 @@
 import pytest
-from aegis.engines.hashing.calculator import calculate_sha256
+from veritensor.engines.hashing.calculator import calculate_sha256
 
 def test_calculate_sha256_regular_file(tmp_path):
     # Creating a regular file
@@ -20,6 +20,6 @@ def test_calculate_sha256_lfs_pointer(tmp_path):
     f = tmp_path / "model.lfs"
     f.write_text(lfs_content)
 
-    # Aegis should return the OID from the text, not the hash of the text itself!
+    # Veritensor should return the OID from the text, not the hash of the text itself!
     expected_oid = "1111111111111111111111111111111111111111111111111111111111111111"
     assert calculate_sha256(f) == expected_oid
