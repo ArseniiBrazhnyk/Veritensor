@@ -72,7 +72,7 @@ class HuggingFaceClient:
             logger.warning(f"File '{filename}' not found in remote repo '{repo_id}'.")
             logger.warning(f"Available files in repo: [{preview}]")
             return "UNKNOWN"
-        
+        remote_hash = None 
         # Case 1: LFS Object
         if "lfs" in remote_file_info:
             remote_hash = remote_file_info["lfs"].get("oid") 
