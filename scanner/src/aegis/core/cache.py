@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional, Dict
 
-CACHE_FILE = Path(".aegis_cache.json")
+CACHE_FILE = Path(".veritensor_cache.json")
 
 class HashCache:
     def __init__(self):
