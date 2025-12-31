@@ -61,25 +61,21 @@ class HuggingFaceClient:
                 break
         
         if not remote_file_info:
-            logger.warning(f"File {filename} not found in remote repo {repo_id}.")
-            return "UNKNOWN"
+            # Collecting a list of available files for a hint
+            available_files = [f.get("rfilename") for f in siblings]
+            
+            # We form a string (the first 5 files)
+            preview = ", ".join(available_files[:5])
+            if len(available_files) > 5:
+                preview += "..."
 
-        # Check LFS SHA256 (usually in 'lfs' dictionary inside the object)
-        # Note: The structure of siblings can vary. 
-        # Sometimes we need to fetch specific file metadata if 'lfs' key is missing in siblings list.
-        # But for most large models, 'sha256' is available in the blob info.
-        
-        # Strategy: If the main API response doesn't have the hash, we might need a secondary call.
-        # However, for MVP, let's try to match what we have.
-        
-        # Often HF API returns 'sha256' directly if it's a small file, 
-        # or inside 'lfs': {'oid': '...'} if it's LFS.
-        
-        remote_hash = None
+            logger.warning(f"File '{filename}' not found in remote repo '{repo_id}'.")
+            logger.warning(f"Available files in repo: [{preview}]")
+            return "UNKNOWN"
         
         # Case 1: LFS Object
         if "lfs" in remote_file_info:
-            remote_hash = remote_file_info["lfs"].get("oid") # oid is sha256
+            remote_hash = remote_file_info["lfs"].get("oid") 
         
         # Case 2: Regular file (sometimes sha256 is not explicitly listed in basic call)
         # In a robust implementation, we would call /api/models/{repo_id}/paths-info/main
