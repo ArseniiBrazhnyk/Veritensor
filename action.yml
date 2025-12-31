@@ -1,0 +1,46 @@
+name: 'Veritensor Security Scanner'
+description: 'Supply Chain Security for AI. Scans models (Pickle, PyTorch, Keras, GGUF) for malware and verifies integrity.'
+author: 'Veritensor Team'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to the model file or directory to scan.'
+    required: true
+    default: '.'
+  
+  repo:
+    description: 'Hugging Face Repository ID (e.g., meta-llama/Llama-2-7b). Used for cryptographic integrity verification.'
+    required: false
+  
+  image:
+    description: 'Docker image tag to sign if the scan passes (e.g., myrepo/model:v1). Requires COSIGN_PRIVATE_KEY environment variable.'
+    required: false
+  
+  force:
+    description: 'Break-glass mode. If "true", the action will not fail the build even if threats are found (exit code 0).'
+    required: false
+    default: 'false'
+  
+  output_format:
+    description: 'Output format. Options: "table", "json". Default is "table" for logs, "json" is recommended for automated parsing.'
+    required: false
+    default: 'table'
+
+  hf_token:
+    description: 'Hugging Face User Access Token (for accessing gated/private models).'
+    required: false
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    VERITENSOR_HF_TOKEN: ${{ inputs.hf_token }}
+  args:
+    - ${{ inputs.path }}
+    - ${{ inputs.repo }}
+    - ${{ inputs.image }}
+    - ${{ inputs.force }}
+    - ${{ inputs.output_format }}
