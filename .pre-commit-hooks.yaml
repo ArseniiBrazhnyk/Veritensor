@@ -1,0 +1,10 @@
+# .pre-commit-hooks.yaml
+- id: veritensor-scan
+  name: Veritensor AI Security Scanner
+  description: Scans AI models for malware and integrity issues before commit.
+  entry: veritensor scan
+  language: python
+  types: [file]
+  # Сканируем только файлы моделей, чтобы не тормозить коммиты
+  files: \.(pt|pth|bin|pkl|ckpt|h5|keras|safetensors|gguf)$
+  require_serial: true
