@@ -1,0 +1,42 @@
+# 🛡️ Veritensor Configuration File
+# This file controls security policies and scanner behavior.
+
+# --- General Settings ---
+
+# Minimum severity level to fail the build (Exit Code 1).
+# Options: CRITICAL, HIGH, MEDIUM, LOW
+# Default: CRITICAL (Blocks Remote Code Execution and Malware)
+fail_on_severity: "CRITICAL"
+
+# Output format for logs.
+# Options: table (for humans), json (for scripts), sarif (for GitHub Security)
+output_format: "table"
+
+# --- Security Policies (Pickle/PyTorch) ---
+
+# List of additional Python modules that are trusted during deserialization.
+# Veritensor already trusts standard ML libraries (torch, numpy, collections).
+# Add your internal company libraries or extra data science libs here.
+allowed_modules:
+  - "pandas"
+  - "scipy"
+  - "sklearn"
+  - "tqdm"
+  # - "my_company.internal_layer"
+
+# --- Exceptions (False Positives) ---
+
+# Specific threats to ignore. Use with caution!
+# Format matches the output string: "SEVERITY: module.function"
+ignored_rules:
+  # Example: Allow checking if a file exists (usually safe)
+  # - "CRITICAL: os.path.exists"
+  
+  # Example: Allow network requests (High risk, enable only if necessary)
+  # - "HIGH: requests.get"
+
+# --- Registry & Identity ---
+
+# Hugging Face Token can be set here, but it is RECOMMENDED 
+# to use the environment variable VERITENSOR_HF_TOKEN instead for security.
+# hf_token: "hf_..."
