@@ -13,25 +13,28 @@ RUN LATEST_VERSION=$(curl -s https://api.github.com/repos/sigstore/cosign/releas
 # --- Install Veritensor ---
 WORKDIR /app
 
-# [CHANGED] Copy dependency definition from scanner folder
-COPY scanner/pyproject.toml .
+# [FIXED] Copy dependency definition from ROOT (removed 'scanner/')
+COPY pyproject.toml .
 
-# Create dummy package structure
+# Create dummy package structure to allow installing dependencies
+# before the actual code is copied. This speeds up re-builds.
 RUN mkdir -p src/veritensor && touch src/veritensor/__init__.py
 RUN pip install --no-cache-dir .
 
-# [CHANGED] Copy source code from scanner folder
-COPY scanner/src/ src/
+# [FIXED] Copy source code from ROOT (removed 'scanner/')
+COPY src/ src/
 
-# [CHANGED] Copy config from root (it is already here)
+# [FIXED] Copy config from ROOT
+# ВАЖНО: Убедитесь, что файл veritensor.yaml существует в корне репозитория!
+# Если его нет на скриншоте, создайте его, иначе сборка упадет.
 COPY veritensor.yaml .
 
-# Re-install package
+# Re-install the package to link the actual source code
 RUN pip install .
 
 # --- Setup Entrypoint ---
-# [CHANGED] Copy entrypoint from root (it is already here)
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# The entrypoint script will handle argument parsing
 ENTRYPOINT ["/entrypoint.sh"]
