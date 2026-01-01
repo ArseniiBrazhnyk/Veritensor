@@ -3,7 +3,12 @@ name: Publish Veritensor
 on:
   push:
     tags:
-      - 'v*'  # Triggers only on tags like v0.1.0, v1.0.0
+      - 'v*'
+
+permissions:
+  contents: write     
+  packages: write     
+  id-token: write     
 
 jobs:
   pypi-publish:
@@ -15,7 +20,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
