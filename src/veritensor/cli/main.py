@@ -244,7 +244,7 @@ def keygen(output_prefix: str = "veritensor"):
 
 @app.command()
 def version():
-    console.print("Veritensor v1.0.3 (Community Edition)")
+    console.print("Veritensor v1.1.0 (Community Edition)")
 
 if __name__ == "__main__":
     app()
