@@ -22,7 +22,7 @@ class HashCache:
         
         if key in self.cache:
             entry = self.cache[key]
-            # Проверяем, не изменился ли файл (размер + время изменения)
+            # Checking if the file has changed (size + modification time)
             if entry["size"] == stats.st_size and entry["mtime"] == stats.st_mtime:
                 return entry["hash"]
         return None
