@@ -28,24 +28,44 @@ from veritensor.engines.static.rules import is_license_restricted
 from veritensor.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
 from veritensor.integrations.huggingface import HuggingFaceClient
 
-
-# ... (logging, app, console, extensions setup)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("veritensor")
 app = typer.Typer(help="Veritensor: AI Model Security Scanner & Gatekeeper")
 console = Console()
+
 PICKLE_EXTS = {".pt", ".pth", ".bin", ".pkl", ".ckpt"}
 KERAS_EXTS = {".h5", ".keras"}
 SAFETENSORS_EXTS = {".safetensors"}
 GGUF_EXTS = {".gguf"}
 
+# Helper to map severity string to integer for comparison
+SEVERITY_LEVELS = {
+    "LOW": 1,
+    "MEDIUM": 2,
+    "HIGH": 3,
+    "CRITICAL": 4
+}
+
+def check_severity(threats: List[str], threshold: str) -> bool:
+    """Returns True if any threat meets or exceeds the threshold."""
+    threshold_val = SEVERITY_LEVELS.get(threshold.upper(), 4)
+    
+    for threat in threats:
+        # Extract severity prefix (e.g. "CRITICAL: ...")
+        parts = threat.split(":")
+        if len(parts) > 0:
+            level_str = parts[0].strip().upper()
+            level_val = SEVERITY_LEVELS.get(level_str, 0) # Default to 0 if unknown prefix
+            if level_val >= threshold_val:
+                return True
+    return False
 
 @app.command()
 def scan(
     path: Path = typer.Argument(..., help="Path to model file or directory"),
-    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Hugging Face Repo ID (e.g. meta-llama/Llama-2-7b)"),
-    image: Optional[str] = typer.Option(None, help="Docker image tag to sign (e.g. myrepo/model:v1)"),
-    force: bool = typer.Option(False, "--force", "-f", help="Break-glass: Force approval even if risks found"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Hugging Face Repo ID"),
+    image: Optional[str] = typer.Option(None, help="Docker image tag to sign"),
+    force: bool = typer.Option(False, "--force", "-f", help="Break-glass: Force approval"),
     json_output: bool = typer.Option(False, "--json", help="Output results in JSON format"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed logs"),
 ):
@@ -54,7 +74,7 @@ def scan(
         logger.setLevel(logging.DEBUG)
 
     if not json_output:
-        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.0", border_style="cyan"))
+        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.0.3", border_style="cyan"))
 
     files_to_scan = []
     if path.is_file():
@@ -73,7 +93,7 @@ def scan(
 
     hash_cache = HashCache()
     results: List[ScanResult] = []
-    has_critical_errors = False
+    has_blocking_errors = False
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True, disable=json_output) as progress:
         task = progress.add_task(f"Scanning {len(files_to_scan)} files...", total=len(files_to_scan))
@@ -84,7 +104,7 @@ def scan(
             
             scan_res = ScanResult(file_path=str(file_path.name))
 
-            # --- A. Identity (Hashing & Verification) ---
+            # --- A. Identity ---
             try:
                 cached_hash = hash_cache.get(file_path)
                 if cached_hash:
@@ -102,7 +122,7 @@ def scan(
                     elif verification == "MISMATCH":
                         scan_res.add_threat(f"CRITICAL: Hash mismatch! File differs from official '{repo}'")
             except Exception as e:
-                scan_res.add_threat(f"Hashing Error: {str(e)}")
+                scan_res.add_threat(f"CRITICAL: Hashing Error: {str(e)}")
 
             # --- B. Static Analysis ---
             threats = []
@@ -112,7 +132,7 @@ def scan(
                         content = f.read() 
                         threats = scan_pickle_stream(content, strict_mode=True)
                 except Exception as e:
-                    threats.append(f"Scan Error: {str(e)}")
+                    threats.append(f"CRITICAL: Scan Error: {str(e)}")
             elif ext in KERAS_EXTS:
                 threats = scan_keras_file(file_path)
             
@@ -124,46 +144,43 @@ def scan(
             reader = get_reader_for_file(file_path)
             if reader:
                 metadata = reader.read_metadata(file_path)
-                license_str = metadata.get("license", None)
                 
-                #  Whitelist check
-                # If the repository is on the whitelist, skip the license check
-                is_whitelisted = repo and (repo in config.allowed_models)
-                
-                if not is_whitelisted:
-                    # Checking for lack of a license
-                    if not license_str:
-                        msg = "WARNING: License metadata not found."
-                        if config.fail_on_missing_license:
-                            scan_res.add_threat(f"HIGH: {msg} (Policy: fail_on_missing)")
-                        else:
-                            # Just add it to the info without changing the status to FAIL.
-                            scan_res.threats.append(f"INFO: {msg}")
+                # Check for parsing errors
+                if "error" in metadata:
+                     scan_res.add_threat(f"MEDIUM: Metadata parse error: {metadata['error']}")
+                else:
+                    license_str = metadata.get("license", None)
+                    is_whitelisted = repo and (repo in config.allowed_models)
                     
-                    # Check for a prohibited license
-                    elif is_license_restricted(license_str, config.custom_restricted_licenses):
-                        scan_res.add_threat(f"HIGH: Restricted license detected: '{license_str}'")
+                    if not is_whitelisted:
+                        if not license_str:
+                            msg = "WARNING: License metadata not found."
+                            if config.fail_on_missing_license:
+                                scan_res.add_threat(f"HIGH: {msg} (Policy: fail_on_missing)")
+                            else:
+                                scan_res.threats.append(f"INFO: {msg}")
+                        elif is_license_restricted(license_str, config.custom_restricted_licenses):
+                            scan_res.add_threat(f"HIGH: Restricted license detected: '{license_str}'")
 
-            # --- D. Policy Check ---
+            # --- D. Policy Check (Updated) ---
             if scan_res.status == "FAIL":
-                if any("CRITICAL" in t for t in scan_res.threats):
-                    has_critical_errors = True
-                # Можно добавить проверку на HIGH, если fail_on_severity = "HIGH"
-                elif config.fail_on_severity == "HIGH" and any("HIGH" in t for t in scan_res.threats):
-                    has_critical_errors = True
+                # Check if any threat exceeds the configured severity threshold
+                if check_severity(scan_res.threats, config.fail_on_severity):
+                    has_blocking_errors = True
 
             results.append(scan_res)
             progress.advance(task)
 
-    # ... (Reporting, Decision, Signing - без изменений)
+    # Reporting
     if json_output:
         results_dicts = [r.__dict__ for r in results]
         console.print_json(json.dumps(results_dicts))
     else:
         _print_table(results)
 
+    # Decision
     sign_status = "clean"
-    if has_critical_errors:
+    if has_blocking_errors:
         if force:
             if not json_output:
                 console.print("\n[bold yellow]⚠️  RISKS DETECTED (Force Approved)[/bold yellow]")
@@ -176,10 +193,10 @@ def scan(
         if not json_output:
             console.print("\n[bold green]✅ Scan Passed. Model is clean & verified.[/bold green]")
 
+    # Signing
     if image:
         _perform_signing(image, sign_status, config)
 
-# (all other functions _print_table, _perform_signing, keygen, version are unchanged)
 def _print_table(results: List[ScanResult]):
     table = Table(title="Scan Results")
     table.add_column("File", style="cyan")
@@ -224,7 +241,8 @@ def keygen(output_prefix: str = "veritensor"):
 
 @app.command()
 def version():
-    console.print("Veritensor v1.0 (Community Edition)")
+    console.print("Veritensor v1.0.3 (Community Edition)")
 
 if __name__ == "__main__":
     app()
+
