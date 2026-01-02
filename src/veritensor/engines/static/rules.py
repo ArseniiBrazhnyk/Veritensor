@@ -101,3 +101,22 @@ def get_severity(module: str, name: str) -> Optional[str]:
 def is_critical_threat(module: str, name: str) -> bool:
     """Helper to quickly check if an import represents an RCE risk."""
     return get_severity(module, name) == "CRITICAL"
+
+# List of license keywords that pose a risk for commercial use
+RESTRICTED_LICENSES = [
+    "cc-by-nc",          # Non-Commercial
+    "agpl",              # Affero GPL (viral license)
+    "non-commercial",
+    "research-only",
+]
+
+def is_license_restricted(license_string: str) -> bool:
+    """Checks if a license string contains restricted keywords."""
+    if not license_string:
+        return False
+    
+    normalized = license_string.lower()
+    for keyword in RESTRICTED_LICENSES:
+        if keyword in normalized:
+            return True
+    return False
