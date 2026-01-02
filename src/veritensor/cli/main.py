@@ -121,7 +121,7 @@ def scan(
                     scan_res.add_threat(t)
 
             # --- C. License Check ---
-             reader = get_reader_for_file(file_path)
+            reader = get_reader_for_file(file_path)
             if reader:
                 metadata = reader.read_metadata(file_path)
                 license_str = metadata.get("license", None)
