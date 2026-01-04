@@ -16,7 +16,7 @@ class HashCache:
                 self.cache = {}
 
     def get(self, file_path: Path) -> Optional[str]:
-        """Возвращает хэш, если файл не менялся."""
+        """Returns the hash if the file has not been changed."""
         key = str(file_path.resolve())
         stats = file_path.stat()
         
@@ -28,7 +28,7 @@ class HashCache:
         return None
 
     def set(self, file_path: Path, file_hash: str):
-        """Сохраняет хэш в кэш."""
+        """Saves the hash to the cache."""
         key = str(file_path.resolve())
         stats = file_path.stat()
         self.cache[key] = {
