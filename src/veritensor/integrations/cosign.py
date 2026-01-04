@@ -41,12 +41,14 @@ def sign_container(
     cmd = [
         "cosign", "sign",
         "--key", key_path,
-        "-y"  # Skip confirmation prompts (but NOT password prompts)
+        "-y"  # Skip confirmation prompts
     ]
 
-    # Handle Transparency Log (Rekor) - Removed for compatibility with newer Cosign versions
-    # if not tlog_upload:
-    #     cmd.append("--tlog-upload=false")
+
+    # Handle Transparency Log (Rekor)
+    # We disable this by default to prevent leaking enterprise metadata to public logs.
+    if not tlog_upload:
+        cmd.append("--tlog-upload=false")
 
     # Add Annotations
     if annotations:
@@ -60,6 +62,7 @@ def sign_container(
         logger.info(f"Signing image {image_ref} with key {key_path}...")
         
         # We allow direct interaction (stdin/stdout) so the user can type the password.
+        # Note: In CI/CD, use COSIGN_PASSWORD env var to avoid prompts.
         result = subprocess.run(
             cmd,
             capture_output=False, # Allow user to see prompts
