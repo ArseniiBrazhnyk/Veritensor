@@ -68,3 +68,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+     # - name: Update Major Version Tag (v1)
+     #   uses: richardsimko/update-tag@v1
+     #   with:
+     #     tag_name: v1
+     #   env:
+     #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
