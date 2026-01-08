@@ -130,7 +130,7 @@ Prevent committing malicious models to your repository. Add this to .pre-commit-
 ```yaml
 repos:
   - repo: https://github.com/ArseniiBrazhnyk/Veritensor
-    rev: v1.0.1
+    rev: v1.1.2
     hooks:
       - id: veritensor-scan
 ```
