@@ -189,6 +189,19 @@ allowed_models:
 
 ---
 
+## 🧠 Threat Intelligence (Signatures)
+
+Veritensor uses a decoupled signature database (`signatures.yaml`) to detect malicious patterns. This ensures that detection logic is separated from the core engine.
+
+*   **Automatic Updates:** To get the latest threat definitions, simply upgrade the package:
+    ```bash
+    pip install --upgrade veritensor
+    ```
+*   **Transparent Rules:** You can inspect the default signatures in `src/veritensor/engines/static/signatures.yaml`.
+*   **Custom Policies:** If the default rules are too strict for your use case (false positives), use `veritensor.yaml` to whitelist specific modules or models.
+
+  ---
+
 ## 📜 License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](https://github.com/ArseniiBrazhnyk/Veritensor?tab=Apache-2.0-1-ov-file#readme) file for details.
