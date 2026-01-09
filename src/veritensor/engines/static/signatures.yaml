@@ -1,0 +1,51 @@
+version: "2026.01.09"
+description: "Default security signatures for Veritensor"
+
+unsafe_globals:
+  CRITICAL:
+    __builtin__:
+      - eval
+      - compile
+      - getattr
+      - apply
+      - exec
+      - open
+      - breakpoint
+      - __import__
+    builtins:
+      - eval
+      - compile
+      - getattr
+      - apply
+      - exec
+      - open
+      - breakpoint
+      - __import__
+    runpy: "*"
+    os: "*"
+    nt: "*"
+    posix: "*"
+    socket: "*"
+    subprocess: "*"
+    sys: "*"
+    pty: "*"
+    pickle: "*"
+    _pickle: "*"
+    bdb: "*"
+    pdb: "*"
+    shutil: "*"
+    asyncio: "*"
+    marshal: "*"
+    operator:
+      - attrgetter
+
+  HIGH:
+    webbrowser: "*"
+    httplib: "*"
+    requests.api: "*"
+    aiohttp.client: "*"
+    urllib: "*"
+    urllib2: "*"
+
+  MEDIUM: {}
+  LOW: {}
