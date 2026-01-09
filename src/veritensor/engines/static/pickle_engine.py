@@ -120,8 +120,7 @@ def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
                 memo.clear() 
 
     except Exception as e:
-        # We do not crash on malformed files, but we might log it in verbose mode
-        # logger.debug(f"Pickle parsing warning: {e}")
+        # We do not crash on malformed files
         pass
 
     return threats
@@ -140,4 +139,6 @@ def _check_import(module: str, name: str, strict_mode: bool) -> str:
     # This detects unknown/anomalous imports (Zero-Trust)
     if strict_mode:
         if not _is_safe_import(module, name):
-            return f"UNSAFE_IMPORT: {mo
+            return f"UNSAFE_IMPORT: {module}.{name}"
+            
+    return ""
