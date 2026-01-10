@@ -1,5 +1,4 @@
 # Copyright 2025 Veritensor Security
-#
 # The Main CLI Entry Point.
 # Orchestrates: Config -> Scan -> Verify -> Sign.
 
@@ -85,7 +84,7 @@ def scan(
     is_machine_output = json_output or sarif_output or sbom_output
 
     if not is_machine_output:
-        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.1.0", border_style="cyan"))
+        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.2.1", border_style="cyan"))
 
     files_to_scan = []
     if path.is_file():
@@ -212,6 +211,7 @@ def scan(
         scan_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
         _perform_signing(image, sign_status, config, scan_timestamp)
 
+
 def _print_table(results: List[ScanResult]):
     table = Table(title="Scan Results")
     table.add_column("File", style="cyan")
@@ -230,6 +230,7 @@ def _print_table(results: List[ScanResult]):
         threat_text = "\n".join(res.threats) if res.threats else "None"
         table.add_row(res.file_path, f"[{status_style}]{res.status}[/{status_style}]", id_icon, threat_text)
     console.print(table)
+
 
 def _perform_signing(image: str, status: str, config, timestamp: str):
     console.print(f"\n🔐 [bold]Signing container:[/bold] {image}")
@@ -251,6 +252,7 @@ def _perform_signing(image: str, status: str, config, timestamp: str):
     else:
         console.print(f"[bold red]Signing Failed.[/bold red]")
 
+
 @app.command()
 def keygen(output_prefix: str = "veritensor"):
     """
@@ -265,12 +267,14 @@ def keygen(output_prefix: str = "veritensor"):
     else:
         console.print("[red]Key generation failed.[/red]")
 
+
 @app.command()
 def version():
     """
     Show version info.
     """
     console.print("Veritensor v1.2.1 (Community Edition)")
+
 
 if __name__ == "__main__":
     app()
