@@ -275,6 +275,40 @@ def version():
     """
     console.print("Veritensor v1.2.2 (Community Edition)")
 
+@app.command()
+def init():
+    """
+    Create a default configuration file (veritensor.yaml).
+    """
+    config_content = """# Veritensor Configuration
+
+# Minimum severity to fail the build (CRITICAL, HIGH, MEDIUM, LOW)
+fail_on_severity: CRITICAL
+
+# License Policy
+fail_on_missing_license: false
+custom_restricted_licenses:
+  - "cc-by-nc"
+  - "agpl"
+  - "research-only"
+
+# Allow specific modules (Allowlist)
+allowed_modules:
+  # - "my_company.internal_layer"
+  # - "sklearn.tree"
+
+# Whitelist specific models (skip license checks)
+allowed_models:
+  # - "meta-llama/Meta-Llama-3-70B-Instruct"
+  # - "regex:^google-bert/.*"
+"""
+    target_path = Path("veritensor.yaml")
+    if target_path.exists():
+        console.print("[yellow]veritensor.yaml already exists. Skipping.[/yellow]")
+    else:
+        with open(target_path, "w") as f:
+            f.write(config_content)
+        console.print("[green]✔ Created default veritensor.yaml[/green]")
 
 if __name__ == "__main__":
     app()
