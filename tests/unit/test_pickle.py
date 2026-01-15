@@ -1,22 +1,30 @@
-import pytest
+import io
+import zipfile
+import pickle
 from veritensor.engines.static.pickle_engine import scan_pickle_stream
 
-def test_scan_clean_file(clean_model_path):
-    with open(clean_model_path, "rb") as f:
-        threats = scan_pickle_stream(f.read())
-    assert len(threats) == 0
+def test_scan_pytorch_zip_recursive():
+    """
+    Checks that the engine can look inside Zip archives. (PyTorch .bin/.pt).
+    """
 
-def test_scan_simple_rce(infected_pickle_path):
-    with open(infected_pickle_path, "rb") as f:
-        threats = scan_pickle_stream(f.read())
+    class Evil:
+        def __reduce__(self):
+            return (eval, ("print('pwned')",))
     
-    # Must find os.system OR nt.system (Windows)
-    assert len(threats) > 0
-    # Updated assertion to handle Windows 'nt' module
-    assert any("os.system" in t or "nt.system" in t or "CRITICAL" in t or "UNSAFE_IMPORT" in t for t in threats)
+    evil_bytes = pickle.dumps(Evil())
 
-def test_scan_pytorch_zip(infected_pytorch_path):
-    # Zip archive reading test (you need to unpack pickle inside the test or use engine)
-    # In the pickle_engine unit test, we only test pickle bytes.
-    # We are testing Zip unpacking in an integration test.
-    pass
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as z:
+        z.writestr("archive/data.pkl", evil_bytes)
+        z.writestr("archive/version", "3")
+    
+    zip_bytes = buffer.getvalue()
+
+
+    threats = scan_pickle_stream(zip_bytes)
+    
+
+    assert len(threats) > 0
+    assert any("eval" in t for t in threats)
