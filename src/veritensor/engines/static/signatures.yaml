@@ -1,4 +1,4 @@
-version: "2026.01.09"
+version: "2026.01.21"
 description: "Comprehensive security signatures (RCE, Cloud Theft, Exfiltration, MLOps abuse)"
 
 # --- 1. Unsafe Modules & Functions (Import Blocklist) ---
@@ -144,6 +144,11 @@ suspicious_strings:
   - "/etc/passwd"
   - "/etc/shadow"
   - ".ssh/id_rsa"
+  - ".ssh/id_ed25519"
+  - ".ssh/id_ecdsa"
+  - ".ssh/id_dsa"
+  - ".ppk"
+  - "winscp.ini"   
   - ".aws/credentials"
   - ".aws/config"
   - "AWS_ACCESS_KEY_ID"
@@ -153,3 +158,7 @@ suspicious_strings:
   - "metadata.google.internal"
   - "ngrok"
   - "pastebin"
+  - "regex:(?i)\\bcurl\\b"  # (?i) = ignore case, \b = word boundary
+  - "regex:(?i)\\bwget\\b"
+  - "regex:(?i)\\bbash\\b"
+  - "regex:(?i)\\bsh\\b"
