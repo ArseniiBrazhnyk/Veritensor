@@ -1,30 +1,27 @@
 import pytest
-import io
-import zipfile
 from veritensor.engines.static.pickle_engine import scan_pickle_stream
+from tests.utils.malware_gen import MalwareGenerator
 
-def test_scan_wheel_with_secrets():
+def test_scan_malicious_wheel(tmp_path):
     """
-    Checks that the engine can scan a .whl (zip) file and find suspicious strings in setup.py.
+    Integration test:
+    1. Generate a .whl file with secrets using MalwareGenerator.
+    2. Scan it with pickle_engine (which now supports zip/whl).
+    3. Assert that secrets are found.
     """
-    # Create a fake setup.py with a secret
-    setup_content = """
-    import os
-    # This is a bad idea
-    AWS_SECRET_ACCESS_KEY = "AKIA..."
-    """
+    # 1. Generate bad wheel
+    gen = MalwareGenerator(tmp_path)
+    whl_path = gen.create_malicious_wheel()
     
-    # Pack into Zip (Wheel)
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as z:
-        z.writestr("setup.py", setup_content)
-        z.writestr("veritensor/__init__.py", "print('hello')")
+    # 2. Read bytes
+    with open(whl_path, "rb") as f:
+        content = f.read()
+        
+    # 3. Scan
+    threats = scan_pickle_stream(content)
     
-    zip_bytes = buffer.getvalue()
-
-    # Scan
-    threats = scan_pickle_stream(zip_bytes)
-    
-    # Verify detection
+    # 4. Verify detection
+    # Should detect AWS Key (Suspicious String)
     assert len(threats) > 0
-    assert any("AWS_SECRET_ACCESS_KEY" in t for t in threats)
+    assert any("AWS_ACCESS_KEY_ID" in t for t in threats)
+    assert any("curl" in t for t in threats)
