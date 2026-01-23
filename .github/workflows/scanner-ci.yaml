@@ -59,7 +59,7 @@ jobs:
           format: 'table'
           # We are not blocking the build yet (exit-code 0) so that you can see the report, 
           # but the release did not stop due to minor vulnerabilities in the basic python image
-          exit-code: '0' 
+          exit-code: '1' 
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
