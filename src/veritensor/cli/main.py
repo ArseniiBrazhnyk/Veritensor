@@ -66,18 +66,18 @@ def scan(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Hugging Face Repo ID"),
     image: Optional[str] = typer.Option(None, help="Docker image tag to sign"),
     
-    # [NEW] Granular Flags
+    # Granular Flags
     ignore_license: bool = typer.Option(False, "--ignore-license", help="Do not fail on license violations"),
-    ignore_malware: bool = typer.Option(False, "--ignore-malware", help="Do not fail on malware/policy violations (DANGEROUS)"),
+    ignore_malware: bool = typer.Option(False, "--ignore-malware", help="Do not fail on malware/policy violations"),
     
-    # [DEPRECATED] Force flag
-    force: bool = typer.Option(False, "--force", "-f", hidden=True, help="Deprecated. Use --ignore-license or --ignore-malware"),
+    # Deprecated Force flag
+    force: bool = typer.Option(False, "--force", "-f", hidden=True, help="Deprecated. Use --ignore-license"),
 
     # --- Output Formats ---
     json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
     sarif_output: bool = typer.Option(False, "--sarif", help="Output SARIF (GitHub Security)"),
     sbom_output: bool = typer.Option(False, "--sbom", help="Output CycloneDX SBOM"),
-    # ----------------------
+
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed logs"),
 ):
     """
@@ -90,7 +90,7 @@ def scan(
     is_machine_output = json_output or sarif_output or sbom_output
 
     if not is_machine_output:
-        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.3.1", border_style="cyan"))
+        console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.3.2", border_style="cyan"))
 
     files_to_scan = []
     if path.is_file():
@@ -123,6 +123,7 @@ def scan(
             progress.update(task, description=f"Analyzing {file_path.name}...")
             
             scan_res = ScanResult(file_path=str(file_path.name))
+            scan_res.repo_id = repo 
 
             # --- A. Identity ---
             try:
@@ -164,11 +165,14 @@ def scan(
             reader = get_reader_for_file(file_path)
             if reader:
                 file_info = reader.read_metadata(file_path)
+                scan_res.file_format = file_info.get("format")
+                
                 if "error" in file_info:
                      scan_res.add_threat(f"MEDIUM: Metadata parse error: {file_info['error']}")
                 else:
                     meta_dict = file_info.get("metadata", {})
                     license_str = meta_dict.get("license", None)
+                    scan_res.detected_license = license_str 
                     
                     is_whitelisted = repo and is_match(repo, config.allowed_models)
                     
@@ -184,16 +188,13 @@ def scan(
 
             # --- D. Policy Check & Categorization ---
             if scan_res.status == "FAIL":
-                # Check severity threshold from config
                 if check_severity(scan_res.threats, config.fail_on_severity):
-                    # Categorize the failure for granular flags
                     for t in scan_res.threats:
                         if "License" in t or "Restricted license" in t:
                             found_license_issue = True
                         elif "Hash mismatch" in t:
                             found_integrity_issue = True
                         else:
-                            # Everything else (RCE, Unsafe Import) is Malware/Policy
                             found_malware = True
 
             results.append(scan_res)
@@ -210,12 +211,11 @@ def scan(
     else:
         _print_table(results)
 
-    # --- Decision Logic (Granular) ---
+    # --- Decision Logic ---
     exit_code = 0
     sign_status = "clean"
     block_reasons = []
 
-    # 1. Malware / Policy / Integrity
     if found_malware or found_integrity_issue:
         if ignore_malware or force:
             if not is_machine_output:
@@ -225,7 +225,6 @@ def scan(
             block_reasons.append("Malware/Integrity")
             exit_code = 1
 
-    # 2. License
     if found_license_issue:
         if ignore_license or force:
             if not is_machine_output:
@@ -243,49 +242,64 @@ def scan(
         if not is_machine_output:
             console.print("\n[bold green]✅ Scan Passed.[/bold green]")
 
-    # --- Signing ---
+    # --- Signing (Smart Attestation) ---
     if image:
         scan_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        _perform_signing(image, sign_status, config, scan_timestamp)
+
+        _perform_signing(image, sign_status, config, scan_timestamp, results)
 
 
 def _print_table(results: List[ScanResult]):
     table = Table(title="Scan Results")
     table.add_column("File", style="cyan")
     table.add_column("Status", justify="center")
-    table.add_column("Identity", justify="center")
-    table.add_column("Threats / Details", style="magenta")
+    table.add_column("License", style="blue") 
+    table.add_column("Threats", style="magenta")
 
     for res in results:
         status_style = "green" if res.status == "PASS" else "bold red"
-        if res.identity_verified:
-            id_icon = "[green]✔ Verified[/green]"
-        elif res.file_hash:
-            id_icon = "[dim]Unchecked[/dim]"
-        else:
-            id_icon = "[red]Error[/red]"
-        threat_text = "\n".join(res.threats) if res.threats else "None"
-        table.add_row(res.file_path, f"[{status_style}]{res.status}[/{status_style}]", id_icon, threat_text)
+        lic = res.detected_license or "Unknown"
+        threats = "\n".join(res.threats) if res.threats else "None"
+        table.add_row(res.file_path, f"[{status_style}]{res.status}[/{status_style}]", lic, threats)
     console.print(table)
 
 
-def _perform_signing(image: str, status: str, config, timestamp: str):
+def _perform_signing(image: str, status: str, config, timestamp: str, results: List[ScanResult]):
+    """
+    Signs with extended AI metadata (Smart Attestation).
+    """
     console.print(f"\n🔐 [bold]Signing container:[/bold] {image}")
     key_path = config.private_key_path or os.environ.get("VERITENSOR_PRIVATE_KEY_PATH")
     if not key_path:
          console.print("[red]Skipping signing: No private key found (set VERITENSOR_PRIVATE_KEY_PATH).[/red]")
          return
     
+    # Base annotations
     annotations = {
         "scanned_by": "veritensor",
         "status": status,
         "scan_date": timestamp
     }
-    
-    success = sign_container(image_ref=image, key_path=key_path, annotations=annotations)
+
+    # [NEW] Smart Attestation Logic
+    # Extract metadata from the first valid result to embed in signature
+    if results:
+        primary = results[0]
+        if primary.file_hash:
+            annotations["ai.model.hash"] = primary.file_hash
+        if primary.detected_license:
+            annotations["ai.model.license"] = primary.detected_license
+        if primary.repo_id:
+            annotations["ai.model.source"] = primary.repo_id
+        if primary.file_format:
+            annotations["ai.model.format"] = primary.file_format
+
+    success = sign_container(image, key_path, annotations=annotations)
     
     if success:
-        console.print(f"[green]✔ Signed successfully with status: {status}[/green]")
+        console.print(f"[green]✔ Signed with Smart Attestation.[/green]")
+        if "ai.model.license" in annotations:
+             console.print(f"[dim]   Metadata: License={annotations['ai.model.license']}[/dim]")
     else:
         console.print(f"[bold red]Signing Failed.[/bold red]")
 
@@ -310,7 +324,7 @@ def version():
     """
     Show version info.
     """
-    console.print("Veritensor v1.3.1 (Community Edition)")
+    console.print("Veritensor v1.3.2 (Community Edition)")
 
 @app.command()
 def init():
