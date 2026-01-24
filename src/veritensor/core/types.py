@@ -13,8 +13,12 @@ class ScanResult:
     file_path: str
     status: str = "PASS"  # PASS / FAIL
     threats: List[str] = field(default_factory=list)
+    
+    # Extended Metadata (Smart Attestation ready)
     file_hash: Optional[str] = None
     identity_verified: bool = False
+    detected_license: Optional[str] = None
+    repo_id: Optional[str] = None
     
     def add_threat(self, message: str):
         self.threats.append(message)
