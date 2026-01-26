@@ -27,6 +27,7 @@ from veritensor.engines.static.keras_engine import scan_keras_file
 from veritensor.engines.static.rules import is_license_restricted, is_match
 from veritensor.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
 from veritensor.integrations.huggingface import HuggingFaceClient
+from veritensor.engines.content.injection import scan_text_file, TEXT_EXTENSIONS
 
 # --- Reporting Modules ---
 from veritensor.reporting.sarif import generate_sarif_report
@@ -63,7 +64,7 @@ def check_severity(threats: List[str], threshold: str) -> bool:
 
 @app.command()
 def scan(
-    path: Path = typer.Argument(..., help="Path to model file or directory"),
+    path: str = typer.Argument(..., help="Path to model file, directory, or S3 URL (s3://...)"),
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Hugging Face Repo ID"),
     image: Optional[str] = typer.Option(None, help="Docker image tag to sign"),
     
@@ -93,14 +94,20 @@ def scan(
     if not is_machine_output:
         console.print(Panel.fit(f"🛡️  [bold cyan]Veritensor Security Scanner[/bold cyan] v1.3.2", border_style="cyan"))
 
+    # Handle S3 or Local Path
     files_to_scan = []
-    if path.is_file():
-        files_to_scan.append(path)
-    elif path.is_dir():
-        files_to_scan.extend([p for p in path.rglob("*") if p.is_file()])
+    if path.startswith("s3://"):
+        # For S3, we treat the path as a single file for MVP
+        files_to_scan.append(Path(path)) 
     else:
-        console.print(f"[bold red]Error:[/bold red] Path {path} not found.")
-        raise typer.Exit(code=1)
+        local_path = Path(path)
+        if local_path.is_file():
+            files_to_scan.append(local_path)
+        elif local_path.is_dir():
+            files_to_scan.extend([p for p in local_path.rglob("*") if p.is_file()])
+        else:
+            console.print(f"[bold red]Error:[/bold red] Path {path} not found.")
+            raise typer.Exit(code=1)
 
     hf_client = None
     if repo:
@@ -120,72 +127,123 @@ def scan(
         task = progress.add_task(f"Scanning {len(files_to_scan)} files...", total=len(files_to_scan))
 
         for file_path in files_to_scan:
-            ext = file_path.suffix.lower()
-            progress.update(task, description=f"Analyzing {file_path.name}...")
+            # Convert to string for processing, keep Path object for local file ops if needed
+            file_path_str = str(file_path_obj)
+            file_name = file_path_obj.name
+            ext = "".join(file_path_obj.suffixes).lower() # Handle .tar.gz etc if needed, usually just .suffix
+            if not ext: ext = file_path_obj.suffix.lower()
+
+            progress.update(task, description=f"Analyzing {file_name}...")
             
-            scan_res = ScanResult(file_path=str(file_path.name))
+            scan_res = ScanResult(file_path=file_path_str)
             scan_res.repo_id = repo 
 
             # --- A. Identity ---
-            try:
-                cached_hash = hash_cache.get(file_path)
-                if cached_hash:
-                    file_hash = cached_hash
-                else:
-                    file_hash = calculate_sha256(file_path)
-                    hash_cache.set(file_path, file_hash)
-                
-                scan_res.file_hash = file_hash
-                
-                if hf_client and repo:
-                    verification = hf_client.verify_file_hash(repo, file_path.name, file_hash)
-                    if verification == "VERIFIED":
-                        scan_res.identity_verified = True
-                    elif verification == "MISMATCH":
-                        scan_res.add_threat(f"CRITICAL: Hash mismatch! File differs from official '{repo}'")
-            except Exception as e:
-                scan_res.add_threat(f"CRITICAL: Hashing Error: {str(e)}")
+            # Skip hashing for S3 in MVP unless we stream it all (costly)
+            # Only hash local files
+            if not file_path_str.startswith("s3://"):
+                try:
+                    cached_hash = hash_cache.get(file_path_obj)
+                    if cached_hash:
+                        file_hash = cached_hash
+                    else:
+                        file_hash = calculate_sha256(file_path_obj)
+                        hash_cache.set(file_path_obj, file_hash)
+                    
+                    scan_res.file_hash = file_hash
+                    
+                    if hf_client and repo:
+                        verification = hf_client.verify_file_hash(repo, file_name, file_hash)
+                        if verification == "VERIFIED":
+                            scan_res.identity_verified = True
+                        elif verification == "MISMATCH":
+                            # [UX Improvement] Check for LFS pointer confusion
+                            file_size = file_path_obj.stat().st_size
+                            if file_size < 2048:
+                                scan_res.add_threat(
+                                    f"CRITICAL: Hash mismatch! Likely a Git LFS pointer ({file_size} bytes). "
+                                    f"Run 'git lfs pull' or use 'huggingface-cli download'."
+                                )
+                            else:
+                                scan_res.add_threat(f"CRITICAL: Hash mismatch! File differs from official '{repo}'")
+                except Exception as e:
+                    scan_res.add_threat(f"CRITICAL: Hashing Error: {str(e)}")
 
             # --- B. Static Analysis ---
-            threats = []
+            # 1. Pickle / PyTorch (Supports S3 via streaming)
             if ext in PICKLE_EXTS:
                 try:
-                    with get_stream_for_path(str(file_path)) as f:
+                    with get_stream_for_path(file_path_str) as f:
+                        # Read content (S3 stream or local file)
+                        # For large files, scan_pickle_stream handles the stream directly
+                        # But currently scan_pickle_stream expects bytes. 
+                        # For MVP we read all. Future: stream parsing.
                         content = f.read() 
                         threats = scan_pickle_stream(content, strict_mode=True)
                 except Exception as e:
                     threats.append(f"CRITICAL: Scan Error: {str(e)}")
-            elif ext in KERAS_EXTS:
-                threats = scan_keras_file(file_path)
             
+            # 2. Keras / H5 (Local only for now)
+            elif ext in KERAS_EXTS:
+                if file_path_str.startswith("s3://"):
+                    threats.append("WARNING: S3 scanning not supported for Keras yet.")
+                else:
+                    threats = scan_keras_file(file_path_obj)
+            
+            # 3. RAG / Text Files (New)
+            elif ext in TEXT_EXTENSIONS:
+                if file_path_str.startswith("s3://"):
+                     threats.append("WARNING: S3 scanning not supported for Text files yet.")
+                else:
+                    try:
+                        threats = scan_text_file(file_path_obj)
+                    except Exception as e:
+                        threats.append(f"WARNING: RAG Scan Error: {str(e)}")
+
             if threats:
                 for t in threats:
                     scan_res.add_threat(t)
 
             # --- C. License Check ---
-            reader = get_reader_for_file(file_path)
-            if reader:
-                file_info = reader.read_metadata(file_path)
-                scan_res.file_format = file_info.get("format")
+            # Only for local files
+            if not file_path_str.startswith("s3://"):
+                reader = get_reader_for_file(file_path_obj)
+                license_str = None
                 
-                if "error" in file_info:
-                     scan_res.add_threat(f"MEDIUM: Metadata parse error: {file_info['error']}")
-                else:
-                    meta_dict = file_info.get("metadata", {})
-                    license_str = meta_dict.get("license", None)
-                    scan_res.detected_license = license_str 
+                # 1. Try file metadata
+                if reader:
+                    file_info = reader.read_metadata(file_path_obj)
+                    scan_res.file_format = file_info.get("format")
                     
-                    is_whitelisted = repo and is_match(repo, config.allowed_models)
-                    
-                    if not is_whitelisted:
-                        if not license_str:
+                    if "error" in file_info:
+                        scan_res.add_threat(f"MEDIUM: Metadata parse error: {file_info['error']}")
+                    else:
+                        meta_dict = file_info.get("metadata", {})
+                        license_str = meta_dict.get("license", None)
+                        scan_res.detected_license = license_str
+
+                # 2. Fallback to API
+                hash_failed = any("Hash mismatch" in t for t in scan_res.threats)
+                if not license_str and hf_client and repo and not hash_failed:
+                    try:
+                        license_str = hf_client.get_model_license(repo)
+                    except Exception:
+                        pass
+                
+                # 3. Validate
+                is_whitelisted = repo and is_match(repo, config.allowed_models)
+                
+                if not is_whitelisted:
+                    if not license_str:
+                        # Only warn if it's a model format that SHOULD have metadata
+                        if reader:
                             msg = "WARNING: License metadata not found."
                             if config.fail_on_missing_license:
                                 scan_res.add_threat(f"HIGH: {msg} (Policy: fail_on_missing)")
                             else:
                                 scan_res.threats.append(f"INFO: {msg}")
-                        elif is_license_restricted(license_str, config.custom_restricted_licenses):
-                            scan_res.add_threat(f"HIGH: Restricted license detected: '{license_str}'")
+                    elif is_license_restricted(license_str, config.custom_restricted_licenses):
+                        scan_res.add_threat(f"HIGH: Restricted license detected: '{license_str}'")
 
             # --- D. Policy Check & Categorization ---
             if scan_res.status == "FAIL":
@@ -245,8 +303,8 @@ def scan(
 
     # --- Signing (Smart Attestation) ---
     if image:
+        
         scan_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
         _perform_signing(image, sign_status, config, scan_timestamp, results)
 
 
@@ -282,7 +340,7 @@ def _perform_signing(image: str, status: str, config, timestamp: str, results: L
         "scan_date": timestamp
     }
 
-    # [NEW] Smart Attestation Logic
+    # Smart Attestation Logic
     # Extract metadata from the first valid result to embed in signature
     if results:
         primary = results[0]
@@ -292,7 +350,7 @@ def _perform_signing(image: str, status: str, config, timestamp: str, results: L
             annotations["ai.model.license"] = primary.detected_license
         if primary.repo_id:
             annotations["ai.model.source"] = primary.repo_id
-        if primary.file_format:
+        if hasattr(primary, 'file_format') and primary.file_format:
             annotations["ai.model.format"] = primary.file_format
 
     success = sign_container(image, key_path, annotations=annotations)
@@ -319,6 +377,41 @@ def keygen(output_prefix: str = "veritensor"):
     else:
         console.print("[red]Key generation failed.[/red]")
 
+@app.command()
+def update():
+    """
+    Downloads the latest security signatures from the official repository.
+    """
+    # Replace with your actual repo URL
+    SIG_URL = "https://raw.githubusercontent.com/ArseniiBrazhnyk/Veritensor/main/src/veritensor/engines/static/signatures.yaml"
+    
+    target_dir = Path.home() / ".veritensor"
+    target_file = target_dir / "signatures.yaml"
+    
+    console.print(f"⬇️  Checking for updates from [cyan]{SIG_URL}[/cyan]...")
+    
+    try:
+        response = requests.get(SIG_URL, timeout=10)
+        response.raise_for_status()
+        
+        # Validate YAML
+        import yaml
+        data = yaml.safe_load(response.text)
+        if "unsafe_globals" not in data:
+            raise ValueError("Invalid signature file format")
+            
+        version = data.get("version", "unknown")
+        
+        target_dir.mkdir(parents=True, exist_ok=True)
+        with open(target_file, "w", encoding="utf-8") as f:
+            f.write(response.text)
+            
+        console.print(f"[green]✅ Successfully updated signatures to version {version}![/green]")
+        console.print(f"[dim]Saved to: {target_file}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Update failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
 
 @app.command()
 def version():
