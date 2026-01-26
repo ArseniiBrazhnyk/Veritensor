@@ -128,10 +128,10 @@ def scan(
 
         for file_path in files_to_scan:
             # Convert to string for processing, keep Path object for local file ops if needed
-            file_path_str = str(file_path_obj)
-            file_name = file_path_obj.name
-            ext = "".join(file_path_obj.suffixes).lower() # Handle .tar.gz etc if needed, usually just .suffix
-            if not ext: ext = file_path_obj.suffix.lower()
+            file_path_str = str(file_path)
+            file_name = file_path.name
+            ext = "".join(file_path.suffixes).lower() # Handle .tar.gz etc if needed, usually just .suffix
+            if not ext: ext = file_path.suffix.lower()
 
             progress.update(task, description=f"Analyzing {file_name}...")
             
@@ -143,12 +143,12 @@ def scan(
             # Only hash local files
             if not file_path_str.startswith("s3://"):
                 try:
-                    cached_hash = hash_cache.get(file_path_obj)
+                    cached_hash = hash_cache.get(file_path)
                     if cached_hash:
                         file_hash = cached_hash
                     else:
-                        file_hash = calculate_sha256(file_path_obj)
-                        hash_cache.set(file_path_obj, file_hash)
+                        file_hash = calculate_sha256(file_path)
+                        hash_cache.set(file_path, file_hash)
                     
                     scan_res.file_hash = file_hash
                     
@@ -157,8 +157,8 @@ def scan(
                         if verification == "VERIFIED":
                             scan_res.identity_verified = True
                         elif verification == "MISMATCH":
-                            # [UX Improvement] Check for LFS pointer confusion
-                            file_size = file_path_obj.stat().st_size
+                            # Check for LFS pointer confusion
+                            file_size = file_path_.stat().st_size
                             if file_size < 2048:
                                 scan_res.add_threat(
                                     f"CRITICAL: Hash mismatch! Likely a Git LFS pointer ({file_size} bytes). "
@@ -188,7 +188,7 @@ def scan(
                 if file_path_str.startswith("s3://"):
                     threats.append("WARNING: S3 scanning not supported for Keras yet.")
                 else:
-                    threats = scan_keras_file(file_path_obj)
+                    threats = scan_keras_file(file_path)
             
             # 3. RAG / Text Files (New)
             elif ext in TEXT_EXTENSIONS:
@@ -196,7 +196,7 @@ def scan(
                      threats.append("WARNING: S3 scanning not supported for Text files yet.")
                 else:
                     try:
-                        threats = scan_text_file(file_path_obj)
+                        threats = scan_text_file(file_path)
                     except Exception as e:
                         threats.append(f"WARNING: RAG Scan Error: {str(e)}")
 
@@ -207,12 +207,12 @@ def scan(
             # --- C. License Check ---
             # Only for local files
             if not file_path_str.startswith("s3://"):
-                reader = get_reader_for_file(file_path_obj)
+                reader = get_reader_for_file(file_path)
                 license_str = None
                 
                 # 1. Try file metadata
                 if reader:
-                    file_info = reader.read_metadata(file_path_obj)
+                    file_info = reader.read_metadata(file_path)
                     scan_res.file_format = file_info.get("format")
                     
                     if "error" in file_info:
