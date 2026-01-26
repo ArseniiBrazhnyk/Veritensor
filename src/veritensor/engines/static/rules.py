@@ -61,15 +61,25 @@ DEFAULT_RESTRICTED_LICENSES = [
     "research-only",
 ]
 
+DEFAULT_PROMPT_INJECTIONS = [
+    "Ignore previous instructions",
+    "System override",
+    "You are now in developer mode"
+]
+
 class SignatureLoader:
     """
     Loads security signatures. 
-    Prioritizes 'signatures.yaml' if present, falls back to hardcoded defaults.
+    Priority order:
+    1. User Updates (~/.veritensor/signatures.yaml) - Downloaded via 'veritensor update'
+    2. Package Defaults (src/.../signatures.yaml) - Bundled with the app
+    3. Hardcoded Fallback - If files are missing
     """
     _instance = None
     _globals = DEFAULT_UNSAFE_GLOBALS
     _suspicious = DEFAULT_SUSPICIOUS_STRINGS
-
+    _injections = DEFAULT_PROMPT_INJECTIONS
+    
     @classmethod
     def get_globals(cls) -> Dict[str, Dict[str, Any]]:
         if cls._instance is None:
@@ -83,26 +93,56 @@ class SignatureLoader:
             cls._instance = cls()
             cls._instance._load()
         return cls._instance._suspicious
+    
+    @classmethod
+    def get_prompt_injections(cls) -> List[str]:
+        if cls._instance is None:
+            cls._instance = cls()
+            cls._instance._load()
+        return cls._instance._injections
 
+    
     def _load(self):
-        # Look for signatures.yaml in the same directory as this file
-        sig_path = Path(__file__).parent / "signatures.yaml"
-        if sig_path.exists():
-            try:
-                with open(sig_path, "r") as f:
-                    data = yaml.safe_load(f)
-                    if data:
-                        if "unsafe_globals" in data:
-                            self._globals = data["unsafe_globals"]
-                        if "suspicious_strings" in data:
-                            self._suspicious = data["suspicious_strings"]
-                        logger.debug(f"Loaded signatures from {sig_path}")
-            except Exception as e:
-                logger.warning(f"Failed to load signatures.yaml, using defaults: {e}")
+        # 1. Check User Home Directory (Updates)
+        user_path = Path.home() / ".veritensor" / "signatures.yaml"
+        # 2. Check Package Directory (Bundled)
+        package_path = Path(__file__).parent / "signatures.yaml"
+        
+        paths_to_try = [user_path, package_path]
+        
+        for path in paths_to_try:
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                        if data:
+                            # Update globals if present
+                            if "unsafe_globals" in data:
+                                self._globals = data["unsafe_globals"]
+                            
+                            # Update suspicious strings if present
+                            if "suspicious_strings" in data:
+                                self._suspicious = data["suspicious_strings"]
+                            
+                            # Update prompt injections if present
+                            if "prompt_injections" in data:
+                                self._injections = data["prompt_injections"]
+                            
+                            logger.debug(f"Loaded signatures from {path}")
+                            
+                            # If we found user updates (first priority), stop looking
+                            if path == user_path:
+                                logger.debug("Using updated signatures from user directory.")
+                                return
+                except Exception as e:
+                    logger.warning(f"Failed to load signatures from {path}: {e}")
+
+# --- Severity Logic ---
 
 def get_severity(module: str, name: str) -> Optional[str]:
     """
     Checks a module.function pair against the blocklist.
+    Returns the severity level (CRITICAL, HIGH, etc.) or None.
     """
     unsafe_globals = SignatureLoader.get_globals()
 
@@ -112,22 +152,28 @@ def get_severity(module: str, name: str) -> Optional[str]:
         if module in rules:
             allowed_list = rules[module]
             
+            # If the rule is "*", the whole module is blacklisted
             if allowed_list == ALL_FUNCTIONS:
                 return severity
             
+            # Otherwise, check specific function names
             if isinstance(allowed_list, list) and name in allowed_list:
                 return severity
 
     return None
 
+
 def is_critical_threat(module: str, name: str) -> bool:
+    """Helper to quickly check if an import represents an RCE risk."""
     return get_severity(module, name) == "CRITICAL"
 
 # --- Regex & Matching Logic ---
 
 def is_match(value: str, patterns: List[str]) -> bool:
     """
-    Hybrid matcher:
+    Hybrid matcher for strings (Licenses, Model Names, Injections).
+    
+    Logic:
     1. If rule starts with 'regex:' or 'pattern:' -> treat as Regular Expression.
     2. Otherwise -> treat as simple substring match (case-insensitive).
     """
@@ -137,11 +183,14 @@ def is_match(value: str, patterns: List[str]) -> bool:
     for pattern in patterns:
         # --- Mode 1: Regex ---
         if pattern.startswith("regex:") or pattern.startswith("pattern:"):
+            # Strip prefix (e.g. "regex:^meta-.*")
             regex_str = pattern.split(":", 1)[1]
             try:
                 if re.search(regex_str, value, re.IGNORECASE):
                     return True
             except re.error:
+                # Log error but don't crash scan
+                logger.warning(f"Invalid regex pattern in config/signatures: {regex_str}")
                 continue
         
         # --- Mode 2: Simple Substring (Default) ---
