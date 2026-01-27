@@ -130,7 +130,7 @@ class GGUFReader(ModelReader):
                 
                 metadata = {}
                 
-                # 4. Parse Key-Value Pairs (FIXED: Now we actually read them)
+                # 4. Parse Key-Value Pairs
                 for _ in range(kv_count):
                     key = self._read_string(f)
                     val_type = struct.unpack('<I', f.read(4))[0]
