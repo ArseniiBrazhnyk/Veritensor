@@ -8,8 +8,8 @@
 import pickletools
 import io
 import logging
-import zipfile  
-from typing import List
+import zipfile
+from typing import List, Union, BinaryIO
 
 # Import dynamic rules loader and regex matcher
 from veritensor.engines.static.rules import get_severity, SignatureLoader, is_match
@@ -65,19 +65,38 @@ def _is_safe_import(module: str, name: str) -> bool:
     
     return False
 
-def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
+def scan_pickle_stream(data: Union[bytes, BinaryIO], strict_mode: bool = True) -> List[str]:
     """
     Disassembles a pickle stream (or Zip/Wheel) and checks for dangerous imports.
+    Supports both bytes (legacy) and file-like objects (streaming).
     """
     threats = []
     
     # Load signatures dynamically from YAML
     suspicious_patterns = SignatureLoader.get_suspicious_strings()
     
+    # Prepare the stream
+    if isinstance(data, bytes):
+        stream = io.BytesIO(data)
+    else:
+        stream = data
+
+    # Check for Zip file (PK header)
+    # We peek or read/seek to check magic bytes
+    start_pos = stream.tell()
+    try:
+        header = stream.read(4)
+        stream.seek(start_pos) # Reset cursor
+    except Exception:
+        # If stream is not seekable (e.g. pipe), assume standard pickle if not bytes
+        header = b""
+
     # --- Zip / Wheel / PyTorch Handling ---
-    if data.startswith(b'PK'):
+    if header.startswith(b'PK'):
         try:
-            with zipfile.ZipFile(io.BytesIO(data), 'r') as z:
+            # zipfile.ZipFile requires a seekable file. 
+            # If stream is from RemoteStream (streaming.py), it supports seek.
+            with zipfile.ZipFile(stream, 'r') as z:
                 file_list = z.namelist()
 
                 # 1. Look for Pickle files
@@ -90,8 +109,8 @@ def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
                 for pkl_name in pickle_files:
                     try:
                         with z.open(pkl_name) as f:
-                            inner_data = f.read()
-                            threats.extend(scan_pickle_stream(inner_data, strict_mode))
+                            # Recursive call. ZipExtFile is file-like, so this works efficiently.
+                            threats.extend(scan_pickle_stream(f, strict_mode))
                     except Exception:
                         continue
 
@@ -114,14 +133,24 @@ def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
             return list(set(threats)) 
             
         except zipfile.BadZipFile:
+            # Not a zip, proceed to try as pickle
             pass 
+        except Exception as e:
+            # If seek failed or other IO error
+            pass
 
     # --- Standard Pickle Scanning ---
+    # Reset stream again just in case
+    try:
+        stream.seek(start_pos)
+    except Exception:
+        pass
+
     MAX_MEMO_SIZE = 2048 
     memo = [] 
 
     try:
-        stream = io.BytesIO(data)
+        # pickletools.genops reads from the stream incrementally
         for opcode, arg, pos in pickletools.genops(stream):
             
             if opcode.name in ("SHORT_BINUNICODE", "UNICODE", "BINUNICODE"):
@@ -136,8 +165,6 @@ def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
                             if is_match(arg, [pat]):
                                 safe_arg = arg[:50] + "..." if len(arg) > 50 else arg
                                 threats.append(f"HIGH: Suspicious string detected: '{pat}' in '{safe_arg}'")
-                               
-                                
 
             elif opcode.name == "STOP":
                 memo.clear()
@@ -164,9 +191,10 @@ def scan_pickle_stream(data: bytes, strict_mode: bool = True) -> List[str]:
                 memo.clear() 
 
     except Exception as e:
+        # Pickle parsing errors are common in non-pickle files, ignore unless debugging
         pass
 
-    return threats
+    return list(set(threats))
 
 def _check_import(module: str, name: str, strict_mode: bool) -> str:
     severity = get_severity(module, name)
