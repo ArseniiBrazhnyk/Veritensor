@@ -7,6 +7,10 @@ import logging
 import boto3
 from urllib.parse import urlparse
 from typing import Optional, List, Any
+import logging
+from botocore import UNSIGNED
+from botocore.config import Config
+from botocore.exceptions import NoCredentialsError, ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -102,21 +106,28 @@ class S3Stream(io.IOBase):
     Requires AWS credentials in environment variables or ~/.aws/credentials.
     """
     def __init__(self, s3_url: str):
-        self.s3 = boto3.client("s3")
         parsed = urlparse(s3_url)
         self.bucket = parsed.netloc
         self.key = parsed.path.lstrip("/")
         self.pos = 0
-        self.size = self._fetch_size()
         self._closed = False
 
-    def _fetch_size(self) -> int:
+
+    self.s3 = boto3.client("s3")
+        
         try:
-            resp = self.s3.head_object(Bucket=self.bucket, Key=self.key)
-            return resp["ContentLength"]
-        except Exception as e:
-            logger.error(f"Failed to access S3 object {self.bucket}/{self.key}: {e}")
-            raise
+            self.size = self._fetch_size()
+        except (NoCredentialsError, ClientError) as e:
+            # If it's a 404 (Not Found), there's no point in trying anonymously
+            error_code = e.response['Error']['Code'] if hasattr(e, 'response') else ""
+            if "404" in str(error_code):
+                logger.error(f"S3 Object not found: {s3_url}")
+                raise
+
+            # 2. Fallback: Try anonymous access (for public buckets)
+            logger.info(f"AWS Creds failed ({error_code}). Trying anonymous access for {s3_url}...")
+            self.s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+            self.size = self._fetch_size()
 
     def read(self, size: int = -1) -> bytes:
         if self._closed: raise ValueError("I/O operation on closed file.")
