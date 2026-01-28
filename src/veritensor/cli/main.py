@@ -52,15 +52,23 @@ SEVERITY_LEVELS = {
 }
 
 def check_severity(threats: List[str], threshold: str) -> bool:
-    """Returns True if any threat meets or exceeds the threshold."""
-    threshold_val = SEVERITY_LEVELS.get(threshold.upper(), 4)
+    """
+    Returns True if any threat meets or exceeds the threshold.
+    Fail-safe: If format is unknown, treats it as HIGH.
+    """
+    threshold_val = SEVERITY_LEVELS.get(threshold.upper(), 4) # Default to CRITICAL if config is wrong
+    
     for threat in threats:
-        parts = threat.split(":")
-        if len(parts) > 0:
+        parts = threat.split(":", 1) # Split only on first colon
+        level_val = 3 # Default to HIGH (3) if parsing fails (Fail Safe logic)
+        
+        if len(parts) > 1:
             level_str = parts[0].strip().upper()
-            level_val = SEVERITY_LEVELS.get(level_str, 0)
-            if level_val >= threshold_val:
-                return True
+            if level_str in SEVERITY_LEVELS:
+                level_val = SEVERITY_LEVELS[level_str]
+        
+        if level_val >= threshold_val:
+            return True
     return False
 
 @app.command()
