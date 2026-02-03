@@ -27,7 +27,10 @@ class VeritensorConfig:
     fail_on_missing_license: bool = False
     custom_restricted_licenses: List[str] = field(default_factory=list)
     allowed_models: List[str] = field(default_factory=list)
-
+    # --- Telemetry Fields ---
+    report_url: Optional[str] = None
+    api_key: Optional[str] = None
+    
 class ConfigLoader:
     _instance: Optional[VeritensorConfig] = None
 
@@ -59,6 +62,12 @@ class ConfigLoader:
         if "VERITENSOR_FAIL_ON" in os.environ:
             config_data["fail_on_severity"] = os.environ["VERITENSOR_FAIL_ON"]
 
+        if "VERITENSOR_REPORT_URL" in os.environ:
+            config_data["report_url"] = os.environ["VERITENSOR_REPORT_URL"]
+        
+        if "VERITENSOR_API_KEY" in os.environ:
+            config_data["api_key"] = os.environ["VERITENSOR_API_KEY"]
+            
         cls._instance = VeritensorConfig(
             allowed_modules=config_data.get("allowed_modules", []),
             ignored_rules=config_data.get("ignored_rules", []),
@@ -68,7 +77,9 @@ class ConfigLoader:
             output_format=config_data.get("output_format", "table"),
             fail_on_missing_license=config_data.get("fail_on_missing_license", False),
             custom_restricted_licenses=config_data.get("restricted_licenses", []),
-            allowed_models=config_data.get("allowed_models", [])
+            allowed_models=config_data.get("allowed_models", []),
+            report_url=config_data.get("report_url"),
+            api_key=config_data.get("api_key")
         )
         return cls._instance
 
