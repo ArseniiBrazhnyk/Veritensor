@@ -58,7 +58,7 @@ def scan_document(file_path: Path) -> List[str]:
 
     try:
         # 1. Extraction Strategy
-        if ext in TEXT_EXTS:
+        if ext in TEXT_EXTENSIONS:
             content = _read_text(file_path)
         elif ext == ".pdf":
             if not PDF_AVAILABLE:
