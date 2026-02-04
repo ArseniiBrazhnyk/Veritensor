@@ -1,7 +1,9 @@
 import textwrap
+import pytest
 from typer.testing import CliRunner
 from veritensor.cli.main import app
 from unittest.mock import patch, MagicMock
+from veritensor.core.streaming import AWS_AVAILABLE
 
 runner = CliRunner()
 
