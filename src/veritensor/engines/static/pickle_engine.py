@@ -13,6 +13,7 @@ from typing import List, Union, BinaryIO
 
 # Import dynamic rules loader and regex matcher
 from veritensor.engines.static.rules import get_severity, SignatureLoader, is_match
+from veritensor.core.safe_zip import SafeZipReader, ZipBombError
 
 logger = logging.getLogger(__name__)
 
@@ -97,49 +98,39 @@ def scan_pickle_stream(data: Union[bytes, BinaryIO], strict_mode: bool = True) -
     # --- Zip / Wheel / PyTorch Handling ---
     if header.startswith(b'PK'):
         try:
-            # zipfile.ZipFile requires a seekable file. 
             with zipfile.ZipFile(stream, 'r') as z:
-                file_list = z.namelist()
+                # ZIP BOMB PROTECTION
+                SafeZipReader.validate(z)
 
-                # 1. Look for Pickle files
+                file_list = z.namelist()
                 pickle_files = [n for n in file_list if n.endswith('.pkl') or 'data' in n]
-                
-                # 2. Look for Python scripts in Wheels
                 script_files = [n for n in file_list if n.endswith('.py')]
 
-                # Scan Pickles recursively
                 for pkl_name in pickle_files:
                     try:
                         with z.open(pkl_name) as f:
-                            # Recursive call. ZipExtFile is file-like but not seekable.
-                            # The logic above handles this by skipping the PK check.
                             threats.extend(scan_pickle_stream(f, strict_mode))
                     except Exception:
                         continue
 
-                # Scan Scripts (Heuristics)
                 for script_name in script_files:
                     try:
                         with z.open(script_name) as f:
-                            # Read text content (limit 1MB per script)
                             content = f.read(1024 * 1024).decode('utf-8', errors='ignore')
-                            
-                            # Check against suspicious patterns
                             if is_match(content, suspicious_patterns):
                                 for pat in suspicious_patterns:
                                     if is_match(content, [pat]):
                                         threats.append(f"HIGH: Suspicious string in {script_name}: '{pat}'")
-                                        
                     except Exception:
                         continue
 
             return list(set(threats)) 
             
+        except ZipBombError as e:
+            return [f"CRITICAL: DoS Attack Detected (Zip Bomb): {str(e)}"]
         except zipfile.BadZipFile:
-            # Not a zip, proceed to try as pickle
             pass 
-        except Exception as e:
-            # If seek failed or other IO error
+        except Exception:
             pass
 
     # --- Standard Pickle Scanning ---
