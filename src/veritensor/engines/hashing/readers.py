@@ -10,6 +10,7 @@ import zipfile
 import logging
 from typing import Dict, Any, Optional, BinaryIO
 from pathlib import Path
+from veritensor.core.safe_zip import SafeZipReader, ZipBombError
 
 # --- Constants ---
 GGUF_MAGIC = 0x46554747  # "GGUF" in little-endian
@@ -90,9 +91,10 @@ class PyTorchZipReader(ModelReader):
                 return {"format": "pytorch_legacy", "note": "Not a zip file"}
 
             with zipfile.ZipFile(file_path, 'r') as z:
+                # ZIP BOMB PROTECTION
+                SafeZipReader.validate(z)
+
                 file_list = z.namelist()
-                
-                # Check for standard PyTorch structure
                 has_data_pkl = "archive/data.pkl" in file_list or "data.pkl" in file_list
                 has_version = "archive/version" in file_list or "version" in file_list
                 
@@ -101,6 +103,8 @@ class PyTorchZipReader(ModelReader):
                     "files": file_list,
                     "is_valid_structure": has_data_pkl and has_version
                 }
+        except ZipBombError as e:
+            return {"error": f"Zip Bomb detected: {str(e)}"}
         except Exception as e:
             return {"error": str(e)}
 
