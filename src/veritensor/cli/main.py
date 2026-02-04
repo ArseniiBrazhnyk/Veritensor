@@ -29,6 +29,7 @@ from veritensor.engines.static.rules import is_license_restricted, is_match
 from veritensor.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
 from veritensor.integrations.huggingface import HuggingFaceClient
 from veritensor.engines.content.injection import scan_text_file, TEXT_EXTENSIONS
+from veritensor.engines.static.notebook_engine import scan_notebook
 
 # --- Reporting Modules ---
 from veritensor.reporting.sarif import generate_sarif_report
@@ -44,6 +45,7 @@ PICKLE_EXTS = {".pt", ".pth", ".bin", ".pkl", ".ckpt", ".whl"}
 KERAS_EXTS = {".h5", ".keras"}
 SAFETENSORS_EXTS = {".safetensors"}
 GGUF_EXTS = {".gguf"}
+NOTEBOOK_EXTS = {".ipynb"}
 
 SEVERITY_LEVELS = {
     "LOW": 1,
@@ -218,7 +220,15 @@ def scan(
                         for t in threats: scan_res.add_threat(t)
                     except Exception as e:
                         scan_res.add_threat(f"WARNING: RAG Scan Error: {str(e)}")
-
+            # 4. Jupyter Notebooks
+            elif ext in NOTEBOOK_EXTS:
+                if file_path_str.startswith("s3://"):
+                     scan_res.add_threat("WARNING: S3 scanning not supported for Notebooks yet.")
+                else:
+                    # Passing the Path object
+                    threats = scan_notebook(file_path)
+                    for t in threats: scan_res.add_threat(t)
+                        
             # --- C. License Check ---
             # Only for local files
             if not file_path_str.startswith("s3://"):
