@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import List
 from veritensor.engines.static.rules import get_severity, SignatureLoader, is_match
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
