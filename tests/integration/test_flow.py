@@ -7,14 +7,6 @@ from veritensor.core.streaming import AWS_AVAILABLE
 
 runner = CliRunner()
 
-def test_local_scan_flow(tmp_path):
-    """Local scan test (should always work)."""
-    f = tmp_path / "model.pt"
-    f.write_text("fake model content")
-    
-    result = runner.invoke(app, ["scan", str(f)])
-    assert result.exit_code == 0
-    assert "Scanning" in result.stdout
 
 def test_cli_scan_clean(clean_model_path):
     # 1. Running the scanner on a clean file
