@@ -189,6 +189,14 @@ suspicious_strings:
   # Google API Key (AIza...)
   - "regex:AIza[0-9A-Za-z-_]{35}"
 
+  # --- Malicious File Extensions in URLs (Data Poisoning) ---
+  - "regex:https?://\\S+\\.exe"
+  - "regex:https?://\\S+\\.sh"
+  - "regex:https?://\\S+\\.apk"
+  - "regex:https?://\\S+\\.bat"
+  - "regex:https?://\\S+\\.ps1"
+  - "regex:https?://\\S+\\.jar"
+
 # --- 3. RAG / Prompt Injections ---
 # Sources: JailbreakChat, OWASP LLM Top 10, Giskard
 prompt_injections:
