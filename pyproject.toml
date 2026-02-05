@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "veritensor"
 version = "1.4.0"
-description = "Supply Chain Security for AI. Scans models (Pickle, PyTorch, Keras, GGUF) for malware and verifies integrity."
+description = "Zero-Trust Security Platform for the AI Supply Chain. Scans models, datasets, notebooks, and RAG documents for threats."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
   {name = "Arsenii Brazhnyk", email = "arsenii.brazhnyk@gmail.com"} 
 ]
-keywords = ["security", "ai", "mlops", "malware-detection", "supply-chain", "devsecops"]
+keywords = ["security", "ai", "mlops", "malware-detection", "supply-chain", "devsecops", "rag", "data-poisoning"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -38,9 +38,12 @@ dependencies = [
 [project.optional-dependencies]
 # Install these only for testing: pip install veritensor[test]
 test = [
-    "pytest",
-    "pytest-mock",
-    "fickling>=0.0.1" 
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "fickling>=0.0.1",
+    "reportlab>=4.0.0",  
+    "anyio>=4.0.0",      
+    "coverage>=7.0.0"      
 ]
 
 # Optional dependencies for RAG document scanning (PDF, DOCX)
@@ -60,9 +63,14 @@ data = [
     "pandas>=2.0.0" 
 ]
 
-# All (Dev environment)
+all = [
+    "veritensor[aws,data,rag]"
+]
+
 dev = [
-    "veritensor[aws,rag,test,data]"
+    "veritensor[all,test]", 
+    "black",        
+    "isort"
 ]
 
 [project.urls]
