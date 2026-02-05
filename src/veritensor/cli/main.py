@@ -30,6 +30,7 @@ from veritensor.integrations.cosign import sign_container, is_cosign_available, 
 from veritensor.integrations.huggingface import HuggingFaceClient
 from veritensor.engines.content.injection import scan_document, TEXT_EXTENSIONS, DOC_EXTENSIONS
 from veritensor.engines.static.notebook_engine import scan_notebook
+from veritensor.engines.data.dataset_engine import scan_dataset
 
 # --- Reporting Modules ---
 from veritensor.reporting.sarif import generate_sarif_report
@@ -47,7 +48,7 @@ SAFETENSORS_EXTS = {".safetensors"}
 GGUF_EXTS = {".gguf"}
 NOTEBOOK_EXTS = {".ipynb"}
 ALL_DOC_EXTENSIONS = TEXT_EXTENSIONS.union(DOC_EXTENSIONS)
-
+DATASET_EXTS = {".parquet", ".csv", ".jsonl"}
 
 SEVERITY_LEVELS = {
     "LOW": 1,
@@ -98,6 +99,7 @@ def scan(
 
     report_to: Optional[str] = typer.Option(None, help="URL to send scan report (Enterprise feature)"),
     api_key: Optional[str] = typer.Option(None, envvar="VERITENSOR_API_KEY", help="API Key for reporting"),
+    full_scan: bool = typer.Option(False, "--full-scan", help="Scan entire dataset (slow). Default: first 10k rows."),
 ):
     """
     Scans a model for malware, checks license compliance, verifies integrity against Hugging Face.
@@ -229,6 +231,13 @@ def scan(
                 else:
                     # Passing the Path object
                     threats = scan_notebook(file_path)
+                    for t in threats: scan_res.add_threat(t)
+             # 5. Datasets (Data Poisoning)
+            elif ext in DATASET_EXTS:
+                if file_path_str.startswith("s3://"):
+                     scan_res.add_threat("WARNING: S3 scanning not supported for Datasets yet.")
+                else:
+                    threats = scan_dataset(file_path, full_scan=full_scan)
                     for t in threats: scan_res.add_threat(t)
                         
             # --- C. License Check ---
