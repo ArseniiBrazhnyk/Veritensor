@@ -123,19 +123,62 @@ def _stream_parquet(path: Path, limit: Optional[int]) -> Generator[str, None, No
             break
 
 def _stream_csv(path: Path, limit: Optional[int]) -> Generator[str, None, None]:
-    """Reads CSV using stdlib (Memory Safe)."""
-    # Increase field limit for large CSV cells, but keep it sane
-    csv.field_size_limit(min(sys.maxsize, 10 * 1024 * 1024)) 
-    
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        reader = csv.reader(f)
-        count = 0
-        for row in reader:
-            for cell in row:
-                yield cell
-            count += 1
-            if limit and count >= limit:
-                break
+    """
+    Reads CSV using a hybrid approach:
+    1. Uses Pandas (if available) for speed and to scan ONLY text columns.
+    2. Falls back to csv stdlib for lightweight environments.
+    """
+    # Trying to use Pandas for smart scanning (Column Pruning)    try:
+        import pandas as pd
+        
+        # We only read the headers to determine the data types
+        header_df = pd.read_csv(path, nrows=0)
+        # We find only "string" columns (of the object type)
+        text_cols = header_df.select_dtypes(include=['object']).columns.tolist()
+        
+        if not text_cols:
+            return # No text data, no threats
+
+        # Read the file in chunks of 1000 lines
+        # usecols=[...] allows  not to read unnecessary numeric data from the disk
+        chunks = pd.read_csv(
+            path, 
+            chunksize=1000, 
+            nrows=limit, 
+            usecols=text_cols,
+            encoding="utf-8",
+            on_bad_lines="skip", # Ignoring broken lines
+            low_memory=True
+        )
+
+        for chunk in chunks:
+            for col in text_cols:
+                # Vectorized processing via .dropna() and .astype(str)
+                for val in chunk[col].dropna():
+                    yield str(val)
+
+    except ImportError:
+        logger.debug(f"Pandas not found, using stdlib for {path.name}")
+        
+        csv.field_size_limit(min(sys.maxsize, 10 * 1024 * 1024)) 
+        
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            reader = csv.reader(f)
+            count = 0
+            try:
+                for row in reader:
+                    for cell in row:
+                        if cell:
+                            yield cell
+                    
+                    count += 1
+                    if limit and count >= limit:
+                        break
+            except csv.Error as e:
+                logger.warning(f"CSV Parse error in {path.name} at row {count}: {e}")
+
+    except Exception as e:
+        logger.error(f"Failed to stream CSV {path.name}: {e}")
 
 def _stream_jsonl(path: Path, limit: Optional[int]) -> Generator[str, None, None]:
     """Reads JSONL line by line with Memory Protection."""
