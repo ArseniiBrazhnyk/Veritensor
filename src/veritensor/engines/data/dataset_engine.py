@@ -49,10 +49,10 @@ def scan_dataset(file_path: Path, full_scan: bool = False) -> List[str]:
                 return ["WARNING: pyarrow not installed. Run 'pip install veritensor[data]'"]
             text_stream = _stream_parquet(file_path, row_limit)
             
-        elif ext == ".csv":
+        elif ext in {".csv", ".tsv"}:
             text_stream = _stream_csv(file_path, row_limit)
             
-        elif ext == ".jsonl":
+        elif ext in {".jsonl", ".ndjson", ".ldjson"}:
             text_stream = _stream_jsonl(file_path, row_limit)
             
         else:
