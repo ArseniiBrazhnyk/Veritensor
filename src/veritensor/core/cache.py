@@ -1,43 +1,93 @@
-import json
-import os
+# Copyright 2026 Veritensor Security Apache 2.0
+import sqlite3
+import logging
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional
 
-CACHE_FILE = Path(".veritensor_cache.json")
+logger = logging.getLogger(__name__)
+
+CACHE_FILE = Path.home() / ".veritensor" / "cache.db"
 
 class HashCache:
     def __init__(self):
-        self.cache: Dict[str, Dict] = {}
-        if CACHE_FILE.exists():
-            try:
-                with open(CACHE_FILE, "r") as f:
-                    self.cache = json.load(f)
-            except Exception:
-                self.cache = {}
+        self.conn = None
+        self._init_db()
+
+    def _init_db(self):
+        """Initializes the SQLite database and creates the table if not exists."""
+        try:
+            # Ensure directory exists
+            CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            
+            # check_same_thread=False allows using connection across threads.
+            # In our multiprocessing architecture, only the MAIN process interacts with this class.
+            self.conn = sqlite3.connect(str(CACHE_FILE), check_same_thread=False)
+            
+            # Enable WAL mode for better performance and concurrency safety
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA synchronous=NORMAL;")
+            
+            self.cursor = self.conn.cursor()
+            
+            # Create table
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS file_cache (
+                    path TEXT PRIMARY KEY,
+                    hash TEXT,
+                    size INTEGER,
+                    mtime REAL
+                )
+            """)
+            self.conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to initialize cache DB: {e}")
+            self.conn = None
 
     def get(self, file_path: Path) -> Optional[str]:
         """Returns the hash if the file has not been changed."""
-        key = str(file_path.resolve())
-        stats = file_path.stat()
-        
-        if key in self.cache:
-            entry = self.cache[key]
-            # Checking if the file has changed (size + modification time)
-            if entry["size"] == stats.st_size and entry["mtime"] == stats.st_mtime:
-                return entry["hash"]
-        return None
+        if not self.conn: return None
+
+        try:
+            abs_path = str(file_path.resolve())
+            stats = file_path.stat()
+            
+            self.cursor.execute(
+                "SELECT hash, size, mtime FROM file_cache WHERE path = ?", 
+                (abs_path,)
+            )
+            row = self.cursor.fetchone()
+            
+            if row:
+                cached_hash, cached_size, cached_mtime = row
+                # Compare size and mtime (float comparison usually safe for exact system mtime)
+                if cached_size == stats.st_size and cached_mtime == stats.st_mtime:
+                    return cached_hash
+            
+            return None
+        except Exception:
+            # If file not found or permission error during stat
+            return None
 
     def set(self, file_path: Path, file_hash: str):
-        """Saves the hash to the cache."""
-        key = str(file_path.resolve())
-        stats = file_path.stat()
-        self.cache[key] = {
-            "hash": file_hash,
-            "size": stats.st_size,
-            "mtime": stats.st_mtime
-        }
-        self._save()
+        """Saves or updates the hash in the cache."""
+        if not self.conn: return
 
-    def _save(self):
-        with open(CACHE_FILE, "w") as f:
-            json.dump(self.cache, f, indent=2)
+        try:
+            abs_path = str(file_path.resolve())
+            stats = file_path.stat()
+            
+            self.cursor.execute("""
+                INSERT OR REPLACE INTO file_cache (path, hash, size, mtime)
+                VALUES (?, ?, ?, ?)
+            """, (abs_path, file_hash, stats.st_size, stats.st_mtime))
+            
+            self.conn.commit()
+        except Exception as e:
+            logger.debug(f"Cache write error: {e}")
+
+    def close(self):
+        if self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
