@@ -7,14 +7,33 @@ from veritensor.core.streaming import AWS_AVAILABLE
 
 runner = CliRunner()
 
+# --- Helper Functions for File Creation ---
+
+def create_clean_pickle(path):
+    """
+    Creates a safe pickle file containing an empty dictionary.
+    Protocol 4, empty dict: {}
+    """
+    path.write_bytes(b"\x80\x04\x95\x02\x00\x00\x00\x00\x00\x00\x00}\x94.")
+
+def create_malicious_pickle(path):
+    """
+    Creates a REAL malicious pickle file with an RCE payload (os.system).
+    Veritensor's engine is designed to detect this 'os.system' global.
+    """
+    # GLOBAL 'os' 'system' -> TUPLE -> REDUCE
+    # This is a classic RCE signature that should trigger a CRITICAL threat.
+    path.write_bytes(b"\x80\x04\x95\x15\x00\x00\x00\x00\x00\x00\x00\x8c\x02os\x94\x8c\x06system\x94\x93\x94.")
+
+# --- Test Cases ---
+
 def test_cli_scan_clean(tmp_path):
     """
-    1. Test scanning a clean file.
-    We create a dummy valid pickle file (empty dict).
+    Test 1: Scan a clean file.
+    Expectation: Exit code 0, status PASS.
     """
     f = tmp_path / "clean_model.pkl"
-    # Bytecode for an empty dictionary {}
-    f.write_bytes(b"\x80\x04\x95\x02\x00\x00\x00\x00\x00\x00\x00}\x94.") 
+    create_clean_pickle(f)
 
     result = runner.invoke(app, ["scan", str(f)])
     
@@ -23,38 +42,42 @@ def test_cli_scan_clean(tmp_path):
 
 def test_cli_scan_infected(tmp_path):
     """
-    2. Test scanning a 'broken' or malicious file.
-    Writing garbage text to a .pkl will cause the engine to report a CRITICAL error/crash,
-    which Veritensor treats as a blocking failure.
+    Test 2: Scan an infected file.
+    Expectation: Exit code 1, status FAIL, deployment blocked.
     """
     f = tmp_path / "infected.pkl"
-    f.write_text("malware_signature_not_a_pickle")
+    create_malicious_pickle(f)
 
     result = runner.invoke(app, ["scan", str(f)])
     
-    # Expect failure because the engine failed to parse (CRITICAL threat)
+    # If the engine correctly detects the RCE, exit code must be 1
+    if result.exit_code != 1:
+        print(f"\n[DEBUG] Unexpected Success. CLI Output:\n{result.stdout}")
+        
     assert result.exit_code == 1
     assert "BLOCKING DEPLOYMENT" in result.stdout
 
 def test_cli_ignore_malware(tmp_path):
     """
-    3. Test the --ignore-malware flag (Replacement for --force).
-    Even with a bad file, it should exit with code 0.
+    Test 3: Scan an infected file with --ignore-malware flag.
+    Expectation: Exit code 0, status PASS (with warning).
     """
-    f = tmp_path / "risky_model.pkl"
-    f.write_text("malware_content") 
+    f = tmp_path / "ignored_virus.pkl"
+    create_malicious_pickle(f)
     
     result = runner.invoke(app, ["scan", str(f), "--ignore-malware"])
     
+    # The flag forces exit code 0 despite threats
     assert result.exit_code == 0
     assert "MALWARE/INTEGRITY RISKS DETECTED (Ignored by user)" in result.stdout
 
 def test_cli_ignore_license(tmp_path):
     """
-    4. Test the --ignore-license flag.
+    Test 4: Verify --ignore-license flag.
+    Expectation: CLI accepts the flag and processes normally.
     """
     f = tmp_path / "model.pkl"
-    f.write_bytes(b".")
+    create_clean_pickle(f)
     
     result = runner.invoke(app, ["scan", str(f), "--ignore-license"])
     assert result.exit_code == 0
@@ -62,13 +85,11 @@ def test_cli_ignore_license(tmp_path):
 @patch("requests.get")
 def test_cli_update(mock_get, tmp_path):
     """
-    5. Test the update command with a simulated GitHub response.
+    Test 5: Verify signature update command.
+    Mocks a GitHub response and checks if signatures.yaml is created.
     """
-    # 1. Mock server response
     mock_response = MagicMock()
     mock_response.status_code = 200
-    
-    # Mock valid YAML response
     mock_response.text = textwrap.dedent("""
     version: "2099.01.01"
     unsafe_globals:
@@ -78,16 +99,13 @@ def test_cli_update(mock_get, tmp_path):
     
     mock_get.return_value = mock_response
 
-    # 2. Mock user home directory to ensure we write to tmp_path, not real ~/.veritensor
+    # Redirect home directory to tmp_path to avoid modifying real user files
     with patch("pathlib.Path.home", return_value=tmp_path):
         result = runner.invoke(app, ["update"])
         
-        # Check success
         assert result.exit_code == 0
-        # FIXED: Updated assertion to match main.py output ("✅ Signatures updated!")
         assert "Signatures updated!" in result.stdout
         
-        # Verify file creation
         saved_file = tmp_path / ".veritensor" / "signatures.yaml"
         assert saved_file.exists()
         assert "2099.01.01" in saved_file.read_text()
@@ -95,13 +113,9 @@ def test_cli_update(mock_get, tmp_path):
 @pytest.mark.skipif(not AWS_AVAILABLE, reason="AWS (boto3) not installed")
 def test_s3_scan_flow():
     """
-    Test scanning an S3 bucket URI.
-    Skipped if boto3 is not installed to prevent crashes in CI.
+    Test 6: Verify S3 URI handling.
+    Checks if the CLI recognizes s3:// schema without immediate crashing.
     """
-    # We just check if the CLI accepts the URL schema without crashing immediately
-    # Real network call would fail without creds, so we expect exit_code 1 or handled error
     result = runner.invoke(app, ["scan", "s3://bucket/model.pkl"])
-    
-    # If no creds, it fails, but that proves the flow worked up to the engine.
-    # We just ensure it didn't crash with a traceback.
+    # We check that the flow reaches the engine without a Python Traceback
     assert "Traceback" not in result.stdout
