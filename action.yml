@@ -1,6 +1,5 @@
-name: 'Veritensor AI Model Security Scanner'
-description: 'AI supply chain security scanner. Detects malware in Pickle, PyTorch, Keras, and GGUF models and verifies integrity.'
-author: 'ArseniiBrazhnyk'
+name: 'Veritensor AI Security Platform'
+description: 'Secure your AI supply chain. Detects malware in models, PII leaks in datasets, and vulnerabilities in poetry/pipenv lock-files.'author: 'ArseniiBrazhnyk'
 branding:
   icon: 'shield'
   color: 'purple'
