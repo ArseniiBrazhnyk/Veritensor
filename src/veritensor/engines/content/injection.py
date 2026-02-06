@@ -1,11 +1,11 @@
 # Copyright 2025 Veritensor Security Apache 2.0
-# RAG Scanner: Detects Prompt Injections in text, PDF, and Docx files.
+# RAG Scanner: Detects Prompt Injections and PII in text, PDF, and Docx files.
 
 import logging
-from typing import List
+from typing import List, Generator, Set
 from pathlib import Path
 from veritensor.engines.static.rules import SignatureLoader, is_match
-from typing import Generator, List, Optional
+from veritensor.engines.content.pii import PIIScanner  # <--- NEW IMPORT
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ except ImportError:
     PPTX_AVAILABLE = False
 
 CHUNK_SIZE = 1024 * 1024 # 1MB chunks
-OVERLAP_SIZE = 4096      # 4KB overlap (enough for "Ignore previous instructions")
+OVERLAP_SIZE = 4096      # 4KB overlap
 
 def scan_document(file_path: Path) -> List[str]:
     """
@@ -71,26 +71,33 @@ def scan_document(file_path: Path) -> List[str]:
         if ext in TEXT_EXTENSIONS:
             text_generator = _read_text_sliding(file_path)
         elif ext == ".pdf" and PDF_AVAILABLE:
-            # PDF/Docx usually fit in memory, so we treat them as one big chunk
-            # But we can still use the chunk logic if we wanted.
-            # For now, let's keep simple extraction for binary formats.
             full_text = _read_pdf(file_path)
             text_generator = _yield_string_chunks(full_text)
         elif ext == ".docx" and DOCX_AVAILABLE:
             full_text = _read_docx(file_path)
             text_generator = _yield_string_chunks(full_text)
-        elif ext == ".pptx":
-            content = _extract_text_from_pptx(path)
+        elif ext == ".pptx" and PPTX_AVAILABLE:
+            full_text = _extract_text_from_pptx(file_path)
+            text_generator = _yield_string_chunks(full_text)
         else:
             return []
 
         # 2. Scan Chunks
         for chunk_index, chunk in enumerate(text_generator):
+            # A. Prompt Injection
             if is_match(chunk, signatures):
                 for pattern in signatures:
                     if is_match(chunk, [pattern]):
                         threats.append(f"HIGH: Prompt Injection detected in {file_path.name}: '{pattern}'")
                         return threats # Fail fast
+
+            # B. PII Scan (Presidio) <--- NEW BLOCK
+            pii_threats = PIIScanner.scan(chunk)
+            if pii_threats:
+                threats.extend(pii_threats)
+                # We can choose to fail fast on PII too, or collect all.
+                # For performance, failing fast on first PII block is often acceptable.
+                return threats
 
     except Exception as e:
         logger.warning(f"Failed to scan document {file_path}: {e}")
@@ -99,67 +106,49 @@ def scan_document(file_path: Path) -> List[str]:
     return threats
 
 def _read_text_sliding(path: Path) -> Generator[str, None, None]:
-    """
-    Reads a file with a sliding window to detect patterns crossing chunk boundaries.
-    """
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         buffer = ""
         while True:
             chunk = f.read(CHUNK_SIZE)
             if not chunk:
                 break
-            
-            # Combine overlap from previous chunk + new chunk
             data = buffer + chunk
             yield data
-            
-            # Save the end of this chunk as the start of the next
             buffer = chunk[-OVERLAP_SIZE:]
 
 def _yield_string_chunks(text: str) -> Generator[str, None, None]:
-    """Helper for PDF/Docx which are already in memory."""
     if not text: return
     yield text
 
 def _read_pdf(path: Path) -> str:
-    """Extracts text from PDF (Text Layer Only)."""
     text_content = []
     try:
         reader = pypdf.PdfReader(path)
-        # Limit pages to prevent processing 1000-page books forever
         max_pages = min(len(reader.pages), 50) 
-        
         for i in range(max_pages):
             page_text = reader.pages[i].extract_text()
             if page_text:
                 text_content.append(page_text)
-                
         return "\n".join(text_content)
     except Exception as e:
         logger.debug(f"PDF parsing error: {e}")
         return ""
 
 def _read_docx(path: Path) -> str:
-    """Extracts text from DOCX."""
     text_content = []
     try:
         doc = docx.Document(path)
-        # Limit paragraphs
         max_paras = min(len(doc.paragraphs), 2000)
-        
         for i in range(max_paras):
             text_content.append(doc.paragraphs[i].text)
-            
         return "\n".join(text_content)
     except Exception as e:
         logger.debug(f"DOCX parsing error: {e}")
         return ""
 
 def _extract_text_from_pptx(path: Path) -> str:
-    """Extracts text from all slides of a presentation."""
     if not PPTX_AVAILABLE:
-        return "ERROR: python-pptx not installed."
-    
+        return ""
     text_runs = []
     try:
         prs = Presentation(path)
@@ -169,5 +158,4 @@ def _extract_text_from_pptx(path: Path) -> str:
                     text_runs.append(shape.text)
     except Exception as e:
         logger.warning(f"Failed to parse PPTX {path.name}: {e}")
-        
     return "\n".join(text_runs)
