@@ -28,16 +28,16 @@ from veritensor.engines.hashing.readers import get_reader_for_file
 from veritensor.engines.static.pickle_engine import scan_pickle_stream
 from veritensor.engines.static.keras_engine import scan_keras_file
 
-# Try-except import for compatibility if rules.py hasn't been updated yet
+# Robust import for rules
 try:
     from veritensor.engines.static.rules import is_license_restricted, is_match
 except ImportError:
     from veritensor.engines.static.rules import is_license_restricted
-    # Fallback if is_match is missing
     def is_match(repo, allowed): return False
 
 from veritensor.integrations.cosign import sign_container, is_cosign_available, generate_key_pair
 from veritensor.integrations.huggingface import HuggingFaceClient
+# Import constants from injection to fix ImportErrors
 from veritensor.engines.content.injection import scan_document, TEXT_EXTENSIONS, DOC_EXTS
 from veritensor.engines.static.notebook_engine import scan_notebook
 from veritensor.engines.data.dataset_engine import scan_dataset
@@ -55,8 +55,6 @@ console = Console()
 # Extensions
 PICKLE_EXTS = {".pt", ".pth", ".bin", ".pkl", ".ckpt", ".whl"}
 KERAS_EXTS = {".h5", ".keras"}
-SAFETENSORS_EXTS = {".safetensors"}
-GGUF_EXTS = {".gguf"}
 NOTEBOOK_EXTS = {".ipynb"}
 DATASET_EXTS = {".parquet", ".csv", ".jsonl"}
 ALL_DOC_EXTS = TEXT_EXTENSIONS.union(DOC_EXTS)
@@ -74,7 +72,7 @@ def check_severity(threats: List[str], threshold: str) -> bool:
         parts = threat.split(":")
         if len(parts) > 0:
             level_str = parts[0].strip().upper()
-            level_val = SEVERITY_LEVELS.get(level_str, 3) # Default to HIGH if parsing fails
+            level_val = SEVERITY_LEVELS.get(level_str, 3) 
             if level_val >= threshold_val:
                 return True
     return False
@@ -87,12 +85,12 @@ def scan_worker(args: Tuple[str, VeritensorConfig, Optional[str], bool, bool, bo
     """
     file_path_str, config, repo, ignore_license, full_scan_dataset, is_s3 = args
     
-    # Handle paths correctly for S3 vs Local
+    # --- FIX 1: Robust Path Handling for S3 vs Local ---
     if is_s3:
+        # Do NOT use Path() for S3 URLs, it breaks on Windows
         file_name = file_path_str.split("/")[-1]
-        # Rough extension extraction for URL
         ext = os.path.splitext(file_name)[1].lower()
-        file_path = None # Don't create Path object for S3
+        file_path = None 
     else:
         file_path = Path(file_path_str)
         file_name = file_path.name
@@ -110,7 +108,6 @@ def scan_worker(args: Tuple[str, VeritensorConfig, Optional[str], bool, bool, bo
             file_hash = calculate_sha256(file_path)
             scan_res.file_hash = file_hash
             
-            # Verify against HF if repo is provided
             if repo:
                 hf_client = HuggingFaceClient(token=config.hf_token)
                 verification = hf_client.verify_file_hash(repo, file_name, file_hash)
@@ -120,8 +117,7 @@ def scan_worker(args: Tuple[str, VeritensorConfig, Optional[str], bool, bool, bo
                     file_size = file_path.stat().st_size
                     if file_size < 2048:
                         scan_res.add_threat(
-                            f"CRITICAL: Hash mismatch! Likely Git LFS pointer ({file_size} b). "
-                            f"Run 'git lfs pull' or use 'huggingface-cli download'."
+                            f"CRITICAL: Hash mismatch! Likely Git LFS pointer ({file_size} b)."
                         )
                     else:
                         scan_res.add_threat(f"CRITICAL: Hash mismatch! File differs from '{repo}'")
@@ -215,15 +211,12 @@ def scan(
     ignore_malware: bool = typer.Option(False, "--ignore-malware", help="Do not fail on malware/policy violations"),
     full_scan: bool = typer.Option(False, "--full-scan", help="Scan entire dataset (slow). Default: first 10k rows."),
     
-    # Parallelism
     jobs: int = typer.Option(None, "--jobs", "-j", help="Number of parallel jobs. Default: CPU count"),
 
-    # Output Formats
     json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
     sarif_output: bool = typer.Option(False, "--sarif", help="Output SARIF"),
     sbom_output: bool = typer.Option(False, "--sbom", help="Output CycloneDX SBOM"),
 
-    # Telemetry
     report_to: Optional[str] = typer.Option(None, help="URL to send scan report (Enterprise)"),
     api_key: Optional[str] = typer.Option(None, envvar="VERITENSOR_API_KEY", help="API Key for reporting"),
 
@@ -265,44 +258,42 @@ def scan(
     hash_cache = HashCache()
     results: List[ScanResult] = []
     
-    # Determine workers
     if jobs is None:
         try:
             jobs = multiprocessing.cpu_count()
         except NotImplementedError:
             jobs = 1
             
-    # If scanning 1 file, don't use pool overhead
     if len(files_to_scan) == 1:
         jobs = 1
 
-    # Prepare tasks (Filter cached files)
     tasks = []
-    
     if not is_s3:
         for f in files_to_scan:
             tasks.append((str(f), config, repo, ignore_license, full_scan, False))
     else:
         tasks.append((path, config, repo, ignore_license, full_scan, True))
 
-    # 3. Execution (Parallel)
+    # 3. Execution (Parallel) with ANTI-HANG protection
     if not is_machine_output:
         console.print(f"[dim]🚀 Starting scan with {jobs} workers on {len(tasks)} files...[/dim]")
 
-    with Progress(
-        SpinnerColumn(), 
-        TextColumn("[progress.description]{task.description}"), 
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        transient=True, 
-        disable=is_machine_output
-    ) as progress:
-        
-        main_task = progress.add_task("Scanning...", total=len(tasks))
-        
-        # Use ProcessPoolExecutor
-        with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
-            # Submit all tasks
+    executor = None
+    try:
+        with Progress(
+            SpinnerColumn(), 
+            TextColumn("[progress.description]{task.description}"), 
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            transient=True, 
+            disable=is_machine_output
+        ) as progress:
+            
+            main_task = progress.add_task("Scanning...", total=len(tasks))
+            
+            # --- FIX 2: Explicit Executor Management ---
+            executor = concurrent.futures.ProcessPoolExecutor(max_workers=jobs)
+            
             future_to_file = {
                 executor.submit(scan_worker, task_args): task_args[0] 
                 for task_args in tasks
@@ -314,19 +305,21 @@ def scan(
                     res = future.result()
                     results.append(res)
                     
-                    # Update Cache in Main Process (Thread-safe)
                     if res.file_hash and not is_s3:
                         hash_cache.set(Path(res.file_path), res.file_hash)
                         
                 except Exception as exc:
-                    # Worker crashed
                     err_res = ScanResult(file_path=file_p, status="FAIL")
                     err_res.add_threat(f"CRITICAL: Worker Crashed: {exc}")
                     results.append(err_res)
                 
                 progress.advance(main_task)
 
-    hash_cache.close()
+    finally:
+        # Guarantee process cleanup to prevent CI hangs
+        if executor:
+            executor.shutdown(wait=True)
+        hash_cache.close()
 
     # 4. Analysis & Reporting
     found_malware = False
@@ -344,7 +337,6 @@ def scan(
                     else:
                         found_malware = True
 
-    # Reporting Output
     if sarif_output:
         print(generate_sarif_report(results))
     elif sbom_output:
@@ -355,7 +347,6 @@ def scan(
     else:
         _print_table(results)
 
-    # Telemetry
     if report_to or config.report_url:
         if not is_machine_output:
             console.print(f"[dim]📡 Sending telemetry...[/dim]")
@@ -408,7 +399,6 @@ def _print_table(results: List[ScanResult]):
     for res in results:
         status_style = "green" if res.status == "PASS" else "bold red"
         lic = res.detected_license or "Unknown"
-        # Truncate threats for table view
         threats_preview = ""
         if res.threats:
             threats_preview = res.threats[0]
