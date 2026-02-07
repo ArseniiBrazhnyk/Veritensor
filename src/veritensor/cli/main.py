@@ -398,12 +398,13 @@ def scan(
 
 def _print_table(results: List[ScanResult]):
     """
-    Renders results in a smart table with threat grouping.
+    Renders results in a smart table.
+    Shows ALL threats without truncation.
     """
     table = Table(title="🛡️ Veritensor Scan Report", header_style="bold magenta")
     table.add_column("File", style="cyan", no_wrap=True)
     table.add_column("Status", justify="center")
-    table.add_column("Summary of Threats", style="white")
+    table.add_column("Threats", style="white")
 
     for res in results:
         status_style = "green" if res.status == "PASS" else "bold red"
@@ -414,8 +415,8 @@ def _print_table(results: List[ScanResult]):
         else:
             # Remove duplicates while preserving order
             unique_threats = list(dict.fromkeys(res.threats))
-    
-            display_threats = "\n".join(summary)
+            
+            display_threats = "\n".join(unique_threats)
 
         table.add_row(
             res.file_path.split("/")[-1], # Show only filename for cleanliness
