@@ -203,51 +203,51 @@ prompt_injections:
   # =================================================================
   # DIRECT OVERRIDES
   # =================================================================
-  - "regex:(?i)ignore\s+(all\s+)?(previous|prior|the)\s+(instructions|directions|commands|prompts|context)"
-  - "regex:(?i)disregard\s+(all\s+)?(previous|prior)\s+(instructions|directions)"
-  - "regex:(?i)(system|manual)\s+override"
-  - "regex:(?i)delete\s+(all\s+)?(previous|prior)\s+instructions"
+  - "regex:(?i)ignore\\s+(all\\s+)?(previous|prior|the)\\s+(instructions|directions|commands|prompts|context)"
+  - "regex:(?i)disregard\\s+(all\\s+)?(previous|prior)\\s+(instructions|directions)"
+  - "regex:(?i)(system|manual)\\s+override"
+  - "regex:(?i)delete\\s+(all\\s+)?(previous|prior)\\s+instructions"
   
   # =================================================================
   # OUTPUT CONSTRAINTS
   # =================================================================
-  - "regex:(?i)as\s+an\s+answer"
-  - "regex:(?i)always\s+(write|answer|respond|output|say|print)"
-  - "regex:(?i)start\s+your\s+(answer|response)\s+with"
-  - "regex:(?i)never\s+(refuse|decline|say\s+no|apologize)"
-  - "regex:(?i)answer\s+only\s+with"
+  - "regex:(?i)as\\s+an\\s+answer"
+  - "regex:(?i)always\\s+(write|answer|respond|output|say|print)"
+  - "regex:(?i)start\\s+your\\s+(answer|response)\\s+with"
+  - "regex:(?i)never\\s+(refuse|decline|say\\s+no|apologize)"
+  - "regex:(?i)answer\\s+only\\s+with"
   
   # =================================================================
   # JAILBREAKS & ROLEPLAY
   # =================================================================
-  - "regex:(?i)you\s+are\s+(now\s+)?(DAN|AIM|Mongo|developer\s+mode|admin|root)"
-  - "regex:(?i)act\s+as\s+an?\s+(unfiltered|evil|unrestricted|god|shadow|linux)"
-  - "regex:(?i)switch\s+to\s+(developer|unrestricted)\s+mode"
-  - "regex:(?i)do\s+anything\s+now"
-  - "regex:(?i)stay\s+in\s+character"
-  - "regex:(?i)enable\s+(AI|system)\s+mode"
+  - "regex:(?i)you\\s+are\\s+(now\\s+)?(DAN|AIM|Mongo|developer\\s+mode|admin|root)"
+  - "regex:(?i)act\\s+as\\s+an?\\s+(unfiltered|evil|unrestricted|god|shadow|linux)"
+  - "regex:(?i)switch\\s+to\\s+(developer|unrestricted)\\s+mode"
+  - "regex:(?i)do\\s+anything\\s+now"
+  - "regex:(?i)stay\\s+in\\s+character"
+  - "regex:(?i)enable\\s+(AI|system)\\s+mode"
   
   # =================================================================
   # DATA EXFILTRATION 
   # =================================================================
-  - "regex:(?i)repeat\s+(the\s+)?(text|sentences?|words?|everything)\s+above"
-  - "regex:(?i)(output|print|reveal|show|dump)\s+(everything|all|system\s+prompt|initial\s+instructions)"
-  - "regex:(?i)what\s+are\s+your\s+(rules|instructions|commands)"
+  - "regex:(?i)repeat\\s+(the\\s+)?(text|sentences?|words?|everything)\\s+above"
+  - "regex:(?i)(output|print|reveal|show|dump)\\s+(everything|all|system\\s+prompt|initial\\s+instructions)"
+  - "regex:(?i)what\\s+are\\s+your\\s+(rules|instructions|commands)"
   
   # =================================================================
   # SIMULATION & HYPOTHETICALS 
   # =================================================================
-  - "regex:(?i)hypothetical\s+(story|response|scenario|conversation)"
-  - "regex:(?i)simulate\s+(a\s+)?(conversation|person|mode)"
-  - "regex:(?i)imagine\s+you\s+are"
-  - "regex:(?i)write\s+a\s+(story|script|dialogue)\s+(where|about)"
+  - "regex:(?i)hypothetical\\s+(story|response|scenario|conversation)"
+  - "regex:(?i)simulate\\s+(a\\s+)?(conversation|person|mode)"
+  - "regex:(?i)imagine\\s+you\\s+are"
+  - "regex:(?i)write\\s+a\\s+(story|script|dialogue)\\s+(where|about)"
   
   # =================================================================
   # OBFUSCATION & ENCODING
   # =================================================================
-  - "regex:(?i)base64\s+(decode|encoded)"
+  - "regex:(?i)base64\\s+(decode|encoded)"
   - "regex:(?i)rot13"
-  - "regex:(?i)unicode\s+(escape|sequence)"
+  - "regex:(?i)unicode\\s+(escape|sequence)"
   
   # =================================================================
   # DELIMITERS
@@ -276,8 +276,8 @@ prompt_injections:
   # =================================================================
   - "regex:(?i)\\b(you\\s+are\\s+(now\\s+)?(DAN|AIM|developer\\s+mode|admin|root)|act\\s+as\\s+an?\\s+(unfiltered|unrestricted))\\b"
   - "regex:(?i)\\b(ignore\\s+your\\s+instructions|disregard\\s+the\\s+system)\\b"
-  - "regex:(?i)играй\\s+роль|представь\\s+что\\s+ты|игнорируй\\s+предыдущие\\s+инструкции"   
-  - "regex:(?i)haz\\s+los\\s+que\\s+quieras|act[aá]\\s+como"                                 
+  - "regex:(?i)играй\\s+роль|представь\\s+что\\s+ты|игнорируй\\s+предыдущие\\s+инструкции"    
+  - "regex:(?i)haz\\s+los\\s+que\\s+quieras|act[aá]\\s+como"                                
 
   # =================================================================
   # META / PROMPT-LEAK / SYSTEM PROMPT REQUESTS
