@@ -1,5 +1,5 @@
 # Copyright 2025 Veritensor Security Apache 2.0
-# RAG Scanner: Detects Prompt Injections and PII in text, PDF, and Docx files.
+# RAG Scanner: Detects Prompt Injections, PII, and Stealth Attacks (CSS/HTML hiding).
 
 import logging
 import re 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 TEXT_EXTENSIONS = {
     # Documentation & Markup
     ".txt", ".md", ".markdown", ".rst", ".adoc", ".asciidoc", 
-    ".tex", ".org", ".wiki",
+    ".tex", ".org", ".wiki", ".html", ".htm", ".css",
     
     # Data & Configs
     ".json", ".xml", ".yaml", ".yml", ".toml", 
@@ -57,6 +57,24 @@ except ImportError:
 CHUNK_SIZE = 1024 * 1024 # 1MB chunks
 OVERLAP_SIZE = 4096      # 4KB overlap
 
+# --- STEALTH ATTACK SIGNATURES (CSS/HTML Hiding) ---
+# These patterns detect attempts to hide text from humans but show it to LLMs.
+STEALTH_PATTERNS = [
+    r"font-size:\s*0px",
+    r"font-size:\s*1px",
+    r"color:\s*white",
+    r"color:\s*#ffffff",
+    r"color:\s*#fff",
+    r"color:\s*transparent",
+    r"display:\s*none",
+    r"visibility:\s*hidden",
+    r"opacity:\s*0",
+    r"position:\s*absolute;\s*left:\s*-\d+px",
+    r"z-index:\s*-\d+",
+    r"<!--.*?ignore previous.*?-->", # HTML Comments with injections
+    r"<span[^>]*style=.*?>.*?</span>" # Suspicious spans (generic check)
+]
+
 def scan_document(file_path: Path) -> List[str]:
     """
     Universal entry point for scanning documents (RAG Data).
@@ -69,7 +87,19 @@ def scan_document(file_path: Path) -> List[str]:
     signatures = SignatureLoader.get_prompt_injections()
 
     try:
-        # 1. Get Text Generator (Yields chunks)
+        # --- PHASE 1: Raw Content Scan (Stealth Detection) ---
+        # We scan the raw file bytes to find HTML/CSS hacks that parsers might strip.
+        # This is critical for PDF/Docx where "color: white" is hidden in the internal structure.
+        if ext in DOC_EXTS or ext in TEXT_EXTENSIONS:
+            raw_threats = _scan_raw_binary(file_path)
+            threats.extend(raw_threats)
+            # If we found explicit stealth attacks, we can return early or continue
+            if raw_threats:
+                # We continue to find specific injection payloads
+                pass
+
+        # --- PHASE 2: Extracted Text Scan (Semantic Detection) ---
+        # Get Text Generator (Yields chunks)
         text_generator = None
         
         if ext in TEXT_EXTENSIONS:
@@ -84,53 +114,41 @@ def scan_document(file_path: Path) -> List[str]:
             full_text = _extract_text_from_pptx(file_path)
             text_generator = _yield_string_chunks(full_text)
         else:
-            return []
+            return threats # Return whatever raw threats we found
 
-        # 2. Scan Chunks
+        # Scan Extracted Chunks
         for chunk in text_generator:
             if not chunk: continue
 
-            # --- A. Prompt Injection Logic (Regex + Normalization) ---
-            # Normalize whitespace to catch "ignore \n instructions" from PDF extraction
-            # Replaces newlines and multiple spaces with a single space
+            # A. Prompt Injection Logic (Regex + Normalization)
             clean_chunk = " ".join(chunk.split())
-            spaced_threat_found = False
+            
+            # Check for Spaced/Obfuscated keywords (e.g. "I g n o r e")
             if len(clean_chunk) > 50 and (clean_chunk.count(" ") / len(clean_chunk)) > 0.3:
-                # We're trying to remove spaces between letters (but not between words, although it's hard to tell)
-                # The most reliable option for injection is to test a fully compressed string
                 collapsed_chunk = clean_chunk.replace(" ", "")
-                
-                # Check the compressed string for keywords (without spaces)
-                # 
                 CRITICAL_KEYWORDS = [
                    "asananswer", "alwayswrite", "ignoreprevious", "systemoverride", 
                    "pwned", "jailbreak"
                 ]
-                
                 for kw in CRITICAL_KEYWORDS:
                     if kw in collapsed_chunk.lower():
                         threats.append(f"HIGH: Obfuscated/Spaced Injection detected in {file_path.name}: '{kw}'")
                         return threats
 
+            # Check Standard Signatures
             for pattern in signatures:
                 is_hit = False
+                found_text = ""
                 
-                # Check 1: Regex Pattern
                 if pattern.startswith("regex:"):
                     regex_str = pattern.replace("regex:", "", 1).strip()
                     try:
-                        # We save the search result in the match variable.
                         match = re.search(regex_str, clean_chunk, re.IGNORECASE)
                         if match:
                             is_hit = True
-                            # 
-                            found_text = match.group(0)
-                            if len(found_text) > 100: 
-                                found_text = found_text[:97] + "..."
+                            found_text = match.group(0)[:100]
                     except re.error:
                         logger.warning(f"Invalid regex in signatures: {regex_str}")
-
-                # Check 2: Simple String Match
                 else:
                     if pattern.lower() in clean_chunk.lower():
                         is_hit = True
@@ -138,13 +156,12 @@ def scan_document(file_path: Path) -> List[str]:
                 
                 if is_hit:
                     threats.append(f"HIGH: Prompt Injection detected in {file_path.name}: Found '{found_text}'")
-                    return threats # Fail fast
+                    return threats 
 
-            # --- B. PII Scan (Presidio) ---
+            # B. PII Scan (Presidio)
             pii_threats = PIIScanner.scan(chunk)
             if pii_threats:
                 threats.extend(pii_threats)
-                # Performance: Fail fast on first PII block
                 return threats
 
     except Exception as e:
@@ -154,6 +171,40 @@ def scan_document(file_path: Path) -> List[str]:
     return threats
 
 # --- Helpers ---
+
+def _scan_raw_binary(path: Path) -> List[str]:
+    """
+    Scans the raw bytes of a file (PDF/Docx/HTML) for CSS/HTML hiding techniques.
+    Uses Latin-1 decoding to map bytes 1-to-1 to characters for Regex.
+    """
+    threats = []
+    try:
+        with open(path, "rb") as f:
+            buffer = ""
+            while True:
+                # Read binary chunk
+                chunk_bytes = f.read(CHUNK_SIZE)
+                if not chunk_bytes:
+                    break
+                
+                # Decode as Latin-1 to preserve all byte values as chars
+                # This allows searching for ASCII strings inside binary files (like PDF streams)
+                chunk_str = chunk_bytes.decode("latin-1")
+                
+                # Combine with overlap
+                data = buffer + chunk_str
+                
+                # Check Stealth Patterns
+                for pattern in STEALTH_PATTERNS:
+                    if re.search(pattern, data, re.IGNORECASE):
+                        threats.append(f"MEDIUM: Stealth/Hiding technique detected in {path.name} (Raw): '{pattern}'")
+                        return threats # Fail fast on stealth detection
+                
+                # Update buffer
+                buffer = chunk_str[-OVERLAP_SIZE:]
+    except Exception:
+        pass # Ignore binary read errors
+    return threats
 
 def _read_text_sliding(path: Path) -> Generator[str, None, None]:
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -168,8 +219,6 @@ def _read_text_sliding(path: Path) -> Generator[str, None, None]:
 
 def _yield_string_chunks(text: str) -> Generator[str, None, None]:
     if not text: return
-    # Yield full text as one chunk for now (for PDFs/Docx), 
-    # unless it's massive, then we might want to split it.
     yield text
 
 def _read_pdf(path: Path) -> str:
