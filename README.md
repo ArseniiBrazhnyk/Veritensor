@@ -172,7 +172,7 @@ jobs:
       - uses: actions/checkout@v4 # Recommended to use latest checkout
       
       - name: Veritensor AI Security Platform
-        uses: ArseniiBrazhnyk/Veritensor@v1.4.0
+        uses: ArseniiBrazhnyk/Veritensor@v1.4.1
         with:
           path: '.'         # Scans everything: Models, Notebooks, Datasets, and Lock-files
           force: 'false'
@@ -183,7 +183,7 @@ Prevent committing malicious models to your repository. Add this to .pre-commit-
 ```yaml
 repos:
   - repo: https://github.com/ArseniiBrazhnyk/Veritensor
-    rev: v1.4.0
+    rev: v1.4.1
     hooks:
       - id: veritensor-scan
 ```
