@@ -1,11 +1,26 @@
 import pytest
 import json
+from unittest.mock import patch
 from pathlib import Path
 from veritensor.engines.data.dataset_engine import scan_dataset
 
+# Optional dependencies check
 pd = pytest.importorskip("pandas") 
 pa = pytest.importorskip("pyarrow")
 pq = pytest.importorskip("pyarrow.parquet")
+
+# --- CONSTANTS FOR TESTING ---
+# Valid length AWS Key (AKIA + 16 chars = 20 chars total)
+FAKE_AWS_KEY = "AKIA0000000000000000" 
+
+# Mocked signatures to ensure tests pass regardless of external yaml files
+MOCKED_SUSPICIOUS = [
+    "regex:AKIA[0-9A-Z]{16}", 
+    "regex:https?://\\S+\\.exe"
+]
+MOCKED_INJECTIONS = [
+    "Ignore previous instructions"
+]
 
 @pytest.fixture
 def temp_data_dir(tmp_path):
@@ -13,10 +28,17 @@ def temp_data_dir(tmp_path):
     d.mkdir()
     return d
 
+# --- MOCKING SIGNATURES FOR ALL TESTS ---
+@pytest.fixture(autouse=True)
+def mock_signatures():
+    with patch("veritensor.engines.static.rules.SignatureLoader.get_suspicious_strings", return_value=MOCKED_SUSPICIOUS), \
+         patch("veritensor.engines.static.rules.SignatureLoader.get_prompt_injections", return_value=MOCKED_INJECTIONS):
+        yield
+
 def test_scan_csv_with_threats(temp_data_dir):
     # Test: Finding the secret in CSV
     csv_file = temp_data_dir / "test.csv"
-    csv_file.write_text("id,text\n1,SAFE\n2,https://malicious.sh\n3,AKIAV3SAEXAMPLE")
+    csv_file.write_text(f"id,text\n1,SAFE\n2,https://evil.exe\n3,{FAKE_AWS_KEY}")
     
     threats = scan_dataset(csv_file)
     assert any("Malicious URL" in t for t in threats)
@@ -45,7 +67,8 @@ def test_scan_jsonl_oversized_line(temp_data_dir):
     with open(jsonl_file, "w") as f:
         # The row is larger than 10MB (our MAX_JSON_LINE_SIZE limit)
         f.write("A" * (11 * 1024 * 1024) + "\n")
-        f.write(json.dumps({"text": "AKIAV3SAEXAMPLE"}) + "\n")
+        # Use valid length key
+        f.write(json.dumps({"text": FAKE_AWS_KEY}) + "\n")
 
     threats = scan_dataset(jsonl_file)
     # The first line should be skipped, the second one should be caught.
@@ -53,12 +76,6 @@ def test_scan_jsonl_oversized_line(temp_data_dir):
 
 def test_scan_parquet_column_pruning(temp_data_dir):
     # Test: Checking that Parquet scans only row columns
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError:
-        pytest.skip("pyarrow not installed")
-
     pq_file = temp_data_dir / "test.parquet"
     df = pd.DataFrame({
         "numbers": [1, 2, 3],
@@ -77,7 +94,7 @@ def test_sampling_logic(temp_data_dir):
         f.write("text\n")
         for i in range(15000):
             # The secret is at the very end (line 14000)
-            val = "AKIAV3SAEXAMPLE" if i == 14000 else "safe"
+            val = FAKE_AWS_KEY if i == 14000 else "safe"
             f.write(f"{val}\n")
 
     # With a normal scan (10k limit), the threat should NOT be found.
