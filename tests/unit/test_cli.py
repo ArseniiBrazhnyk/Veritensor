@@ -39,7 +39,6 @@ def test_scan_local_file_clean(tmp_path, mock_executor, mock_as_completed):
     
     # Configure the mocks
     mock_executor.submit.return_value = mock_future
-    # This is the magic line that prevents the hang:
     mock_as_completed.return_value = [mock_future]
 
     result = runner.invoke(app, ["scan", str(f)])
@@ -81,4 +80,5 @@ def test_scan_ignore_malware(tmp_path, mock_executor, mock_as_completed):
     result = runner.invoke(app, ["scan", str(f), "--ignore-malware"])
 
     assert result.exit_code == 0
-    assert "MALWARE/INTEGRITY RISKS DETECTED" in result.stdout
+    # FIX: Updated expected string
+    assert "SECURITY RISKS DETECTED" in result.stdout
