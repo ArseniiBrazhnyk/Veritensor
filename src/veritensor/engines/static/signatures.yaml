@@ -187,7 +187,11 @@ suspicious_strings:
   - "-----BEGIN RSA PRIVATE KEY-----"
   - "-----BEGIN PRIVATE KEY-----"
   - "-----BEGIN PGP PRIVATE KEY BLOCK-----"
-  
+  - "regex:(?i)https?://\\S+key=[a-zA-Z0-9]+"
+  - "regex:-----BEGIN [A-Z]+ PRIVATE KEY-----"
+  - "regex:(?i)(api_?key|auth_?token|access_?token|secret_?key|client_?secret|password|passwd)\\s*[:=]\\s*(['\"])(.*?)\\2"
+  - "regex:(?i)(api_?key|auth_?token|access_?token|secret_?key|client_?secret|password|passwd)\\s*=\s*['\"]([^'\"]+)['\"]"
+
   # --- Network IOCs ---
   - "169.254.169.254" # AWS Metadata IP
   - "metadata.google.internal"
