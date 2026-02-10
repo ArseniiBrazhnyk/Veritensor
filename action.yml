@@ -1,45 +1,93 @@
-name: 'Veritensor AI Security Platform'
-description: 'Secure your AI supply chain. Detects malware in models, PII leaks in datasets, and vulnerabilities in poetry/pipenv lock-files.'author: 'ArseniiBrazhnyk'
+name: 'Veritensor AI Security Scanner'
+description: 'Secure your AI supply chain. Scans Models, Notebooks, and RAG documents for malware, secrets, and PII.'
+author: 'ArseniiBrazhnyk'
 branding:
   icon: 'shield'
   color: 'purple'
 
 inputs:
   path:
-    description: 'Path to the model file or directory to scan.'
+    description: 'Path to the file or directory to scan.'
     required: true
     default: '.'
   
   repo:
-    description: 'Hugging Face Repository ID (e.g., meta-llama/Llama-2-7b). Used for cryptographic integrity verification.'
+    description: 'Hugging Face Repository ID (e.g. meta-llama/Llama-2-7b) for hash verification.'
     required: false
   
-  image:
-    description: 'Docker image tag to sign if the scan passes (e.g., myrepo/model:v1). Requires COSIGN_PRIVATE_KEY environment variable.'
+  ignore_malware:
+    description: 'If "true", does not fail the build on Malware/Integrity issues (exit code 0).'
     required: false
-  
-  force:
-    description: 'Break-glass mode. If "true", the action will not fail the build even if threats are found (exit code 0).'
+    default: 'false'
+    
+  ignore_license:
+    description: 'If "true", does not fail the build on License issues.'
     required: false
     default: 'false'
   
+  full_scan:
+    description: 'If "true", scans entire datasets without sampling (slow).'
+    required: false
+    default: 'false'
+
   output_format:
-    description: 'Output format. Options: "table", "json". Default is "table" for logs, "json" is recommended for automated parsing.'
+    description: 'Output format: table, json, sarif, sbom.'
     required: false
     default: 'table'
 
   hf_token:
-    description: 'Hugging Face User Access Token (for accessing gated/private models).'
+    description: 'Hugging Face Token for accessing gated models.'
     required: false
 
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  env:
-    VERITENSOR_HF_TOKEN: ${{ inputs.hf_token }}
-  args:
-    - ${{ inputs.path }}
-    - ${{ inputs.repo }}
-    - ${{ inputs.image }}
-    - ${{ inputs.force }}
-    - ${{ inputs.output_format }}
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Veritensor
+      shell: bash
+      run: |
+        pip install --upgrade pip
+        # Install with PII and AWS dependencies for full coverage
+        pip install "veritensor[aws,pii,data]"
+        # Uploading a model for PII (if needed)
+        python -m spacy download en_core_web_lg || echo "Spacy download skipped or failed, continuing..."
+
+    - name: Run Veritensor Scan
+      shell: bash
+      env:
+        VERITENSOR_HF_TOKEN: ${{ inputs.hf_token }}
+      run: |
+        # Collecting flags
+        CMD="veritensor scan ${{ inputs.path }}"
+        
+        if [ "${{ inputs.repo }}" != "" ]; then
+          CMD="$CMD --repo ${{ inputs.repo }}"
+        fi
+        
+        if [ "${{ inputs.ignore_malware }}" == "true" ]; then
+          CMD="$CMD --ignore-malware"
+        fi
+        
+        if [ "${{ inputs.ignore_license }}" == "true" ]; then
+          CMD="$CMD --ignore-license"
+        fi
+
+        if [ "${{ inputs.full_scan }}" == "true" ]; then
+          CMD="$CMD --full-scan"
+        fi
+        
+        # Output formats
+        if [ "${{ inputs.output_format }}" == "json" ]; then
+          CMD="$CMD --json"
+        elif [ "${{ inputs.output_format }}" == "sarif" ]; then
+          CMD="$CMD --sarif"
+        elif [ "${{ inputs.output_format }}" == "sbom" ]; then
+          CMD="$CMD --sbom"
+        fi
+        
+        echo "Running: $CMD"
+        eval $CMD
