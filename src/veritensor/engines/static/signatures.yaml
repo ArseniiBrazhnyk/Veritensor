@@ -357,7 +357,7 @@ prompt_injections:
   # Anthropic (Claude)
   - "regex:sk-ant-api03-[a-zA-Z0-9_\\-]{93}AA"
   # Cohere
-  - "regex:(?i)[\w.-]{0,50}?(?:cohere|CO_API_KEY).*?([a-zA-Z0-9]{40})"
+  - "regex:(?i)[\\w.-]{0,50}?(?:cohere|CO_API_KEY).*?([a-zA-Z0-9]{40})"
   # OpenAI (Project & Service keys)
   - "regex:sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\\-]{40,}"
   # Perplexity AI
@@ -421,4 +421,4 @@ prompt_injections:
   # Generic Private Key Headers
   - "regex:-----BEGIN [A-Z ]+ PRIVATE KEY"
   # Generic API Key assignment (Python style)
-  - "regex:(?i)(api_key|secret|token)\\s*=\s*['\"][a-zA-Z0-9_\\-]{20,}['\"]"
+  - "regex:(?i)(api_key|secret|token)\\s*=\\s*['\"][a-zA-Z0-9_\\-]{20,}['\"]"
