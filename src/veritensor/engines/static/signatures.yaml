@@ -165,9 +165,9 @@ suspicious_strings:
   - "regex:opacity:\\s*0"
   - "regex:position:\\s*absolute;\\s*left:\\s*-9999px"
   - "regex:z-index:\\s*-"
-  - "regex:position:\\s*absolute;\\s*left:\\s*-\d+px"
+  - "regex:position:\\s*absolute;\\s*left:\\s*-\\d+px"
   - "regex:color:\\s*transparent"
-  - "regex:z-index:\\s*-\d+"
+  - "regex:z-index:\\s*-\\d+"
 
   # HTML Comments & Meta tags
   - "regex:<!--.*ignore previous.*-->"
